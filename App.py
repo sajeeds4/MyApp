@@ -1,95 +1,88 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-import altair as alt
-import os
+import datetime
 
-# Define file paths
-INTAKE_FILE = "intake.csv"
-RETURN_FILE = "return.csv"
+# Database Setup
+conn = sqlite3.connect("tickets.db", check_same_thread=False)
+cursor = conn.cursor()
 
-# Function to initialize CSV files if they don't exist
-def init_csv(file, columns):
-    if not os.path.exists(file):
-        df = pd.DataFrame(columns=columns)
-        df.to_csv(file, index=False)
-
-# Initialize CSV files with necessary columns
-init_csv(INTAKE_FILE, ["timestamp", "name", "category", "details"])
-init_csv(RETURN_FILE, ["timestamp", "name", "status"])
-
-# Load data
-def load_data(file):
-    df = pd.read_csv(file)
-    # Convert timestamp column to datetime
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-    return df
-
-intake_df = load_data(INTAKE_FILE)
-return_df = load_data(RETURN_FILE)
+# Create Table if Not Exists
+cursor.execute('''CREATE TABLE IF NOT EXISTS tickets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT,
+                    time TEXT,
+                    batch_name TEXT,
+                    tickets TEXT,
+                    ticket_count INTEGER,
+                    pay_per_ticket REAL
+                )''')
+conn.commit()
 
 # Streamlit UI
-st.title("Inventory Management Dashboard")
+st.title("🎟 Ticket Manager & Earnings Dashboard")
 
-# Sidebar for date filtering
-st.sidebar.header("Filter by Date")
-start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-01-01"))
-end_date = st.sidebar.date_input("End Date", value=pd.to_datetime("2024-12-31"))
+# Get Current Date, Time, and Weekday
+current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+current_time = datetime.datetime.now().strftime("%H:%M:%S")
+weekday = datetime.datetime.now().strftime("%A")  # Monday, Tuesday, etc.
 
-# Convert sidebar date inputs to datetime
-start_date = pd.to_datetime(start_date)
-end_date = pd.to_datetime(end_date)
+# Get Current Batch Number
+cursor.execute("SELECT COUNT(*) FROM tickets WHERE date = ?", (current_date,))
+batch_number = cursor.fetchone()[0] + 1  # Increment for next batch
 
-# Filter data
-intake_filtered = intake_df[
-    intake_df["timestamp"].between(start_date, end_date)
-]
-return_filtered = return_df[
-    return_df["timestamp"].between(start_date, end_date)
-]
+batch_name = f"{weekday} Batch {batch_number}"
 
-# Display filtered intake data
-st.subheader("Intake Records")
-st.write(intake_filtered)
+# User Input
+tickets_input = st.text_area("Enter Tickets (comma-separated):", placeholder="E.g., 1234, 5678, 91011")
 
-# Display filtered return data
-st.subheader("Return Records")
-st.write(return_filtered)
+pay_per_ticket = st.number_input("Enter Pay Per Ticket ($):", min_value=0.0, value=5.0, step=0.5)
 
-# Visualization: Count of items by category
-st.subheader("Category Distribution")
-if not intake_filtered.empty:
-    chart = alt.Chart(intake_filtered).mark_bar().encode(
-        x="category",
-        y="count()",
-        tooltip=["category", "count()"],
-        color="category"
-    ).interactive()
-    st.altair_chart(chart, use_container_width=True)
+# Save Tickets
+if st.button("Save Tickets"):
+    ticket_list = [t.strip() for t in tickets_input.split(",") if t.strip()]
+    ticket_count = len(ticket_list)
+
+    if ticket_count > 0:
+        cursor.execute("INSERT INTO tickets (date, time, batch_name, tickets, ticket_count, pay_per_ticket) VALUES (?, ?, ?, ?, ?, ?)",
+                       (current_date, current_time, batch_name, ", ".join(ticket_list), ticket_count, pay_per_ticket))
+        conn.commit()
+        st.success(f"✅ Saved {ticket_count} tickets under '{batch_name}'!")
+    else:
+        st.error("⚠️ No valid tickets entered. Please add at least one ticket.")
+
+# Dashboard Analytics
+st.subheader("📊 Earnings & Batch Analytics")
+
+df = pd.read_sql("SELECT * FROM tickets", conn)
+
+if not df.empty:
+    df["Total Pay"] = df["ticket_count"] * df["pay_per_ticket"]
+
+    # Display Batch History
+    st.write("### 🏆 Batch History")
+    st.dataframe(df[["date", "time", "batch_name", "ticket_count", "Total Pay"]])
+
+    # Key Metrics
+    total_tickets = df["ticket_count"].sum()
+    total_earnings = df["Total Pay"].sum()
+
+    col1, col2 = st.columns(2)
+    col1.metric("🎫 Total Tickets Processed", total_tickets)
+    col2.metric("💰 Total Earnings", f"${total_earnings:.2f}")
+
+    # Daily Summary
+    st.write("### 📅 Daily Summary")
+    daily_summary = df.groupby("date").agg({"ticket_count": "sum", "Total Pay": "sum"})
+    st.bar_chart(daily_summary)
+
+    # Batch Breakdown
+    st.write("### 🏅 Batch Breakdown")
+    batch_summary = df.groupby("batch_name").agg({"ticket_count": "sum", "Total Pay": "sum"})
+    st.bar_chart(batch_summary)
+
 else:
-    st.write("No data available for the selected date range.")
+    st.info("ℹ️ No ticket data available. Enter tickets to see analytics.")
 
-# Option to add new records
-st.sidebar.header("Add New Record")
-record_type = st.sidebar.selectbox("Select Record Type", ["Intake", "Return"])
-name = st.sidebar.text_input("Item Name")
-category = st.sidebar.text_input("Category") if record_type == "Intake" else None
-details = st.sidebar.text_area("Details") if record_type == "Intake" else None
-status = st.sidebar.selectbox("Status", ["Pending", "Completed"]) if record_type == "Return" else None
-add_record = st.sidebar.button("Add Record")
-
-# Save new record
-if add_record:
-    new_entry = {
-        "timestamp": pd.Timestamp.now(),
-        "name": name,
-        "category": category if record_type == "Intake" else None,
-        "details": details if record_type == "Intake" else None,
-        "status": status if record_type == "Return" else None,
-    }
-    file = INTAKE_FILE if record_type == "Intake" else RETURN_FILE
-    df = intake_df if record_type == "Intake" else return_df
-    df = df.append(new_entry, ignore_index=True)
-    df.to_csv(file, index=False)
-    st.sidebar.success("Record added successfully! Refresh to see the update.")
-
-st.write("📌 **Note:** Any changes made will be saved automatically.")
+# Close Database Connection
+conn.close()
