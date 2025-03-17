@@ -4,13 +4,6 @@ import pandas as pd
 import datetime
 import io
 
-# --- Suggestions ---
-# - Use tooltips and help texts to guide users.
-# - Provide export/download options for your data.
-# - Use interactive search and filtering in the Manage Tickets page.
-# - Consider using charts in the Dashboard for visual insights.
-# - Use expanders to hide advanced options and keep the UI clean.
-
 # --- Database Connection ---
 @st.cache_resource
 def get_db_connection():
@@ -20,7 +13,7 @@ def get_db_connection():
 conn = get_db_connection()
 cursor = conn.cursor()
 
-# --- Create Tickets Table ---
+# --- Create the Tickets Table ---
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     time TEXT,
     batch_name TEXT,
     ticket_number TEXT UNIQUE,
-    num_sub_tickets INTEGER DEFAULT 0,
+    num_sub_tickets INTEGER DEFAULT 1,
     status TEXT DEFAULT 'Open',
     type TEXT,
     pay REAL DEFAULT 5.5
@@ -36,39 +29,42 @@ CREATE TABLE IF NOT EXISTS tickets (
 ''')
 conn.commit()
 
-# Ensure the "pay" column exists (for backward compatibility)
+# --- Ensure Schema Compatibility ---
 cursor.execute("PRAGMA table_info(tickets)")
 columns_info = cursor.fetchall()
 column_names = [col[1] for col in columns_info]
 if "pay" not in column_names:
     cursor.execute("ALTER TABLE tickets ADD COLUMN pay REAL DEFAULT 5.5")
     conn.commit()
+if "num_sub_tickets" not in column_names:
+    cursor.execute("ALTER TABLE tickets ADD COLUMN num_sub_tickets INTEGER DEFAULT 1")
+    conn.commit()
 
-# --- Sidebar Menu ---
+# --- Sidebar Navigation ---
 st.sidebar.title("Ticket Management App")
 st.sidebar.info("Select a page from the menu below.")
 menu = st.sidebar.radio("Menu", ["Add Intake Tickets", "Add Return Tickets", "Manage Tickets", "Dashboard"])
 
-# --- Function for Adding Tickets ---
+# --- Function to Add Tickets ---
 def add_tickets(ticket_category):
     st.header(f"Add {ticket_category} Tickets")
     st.markdown(
         """
         **Instructions:**
-        - **General Ticket:** Enter multiple ticket numbers separated by a space. Each ticket is added as one entry.
-        - **Large Ticket:** Enter a single ticket number and specify the number of sub-tickets.
+        - **General Ticket:** Enter multiple ticket numbers separated by a space. Each ticket is added as a single entry.
+        - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
         """
     )
     ticket_entry_type = st.radio(
         "Select Ticket Entry Type", 
         ["General Ticket", "Large Ticket"],
-        index=0, 
-        help="Choose how you want to add your tickets."
+        index=0,
+        help="Choose how to add your tickets."
     )
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.datetime.now().strftime("%H:%M:%S")
     
-    # Generate a new batch name based on the current count of batches.
+    # Generate a new batch name based on the number of distinct batches.
     cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
     batch_count = cursor.fetchone()[0] + 1
     batch_name = f"Batch-{batch_count}"
@@ -97,14 +93,14 @@ def add_tickets(ticket_category):
                 conn.commit()
                 if success_count:
                     st.success(f"Added {success_count} general ticket(s) as {ticket_category}.")
-                    st.balloons()  # Fun interactive effect!
+                    st.balloons()
             else:
                 st.error("Please enter at least one ticket number.")
                     
     elif ticket_entry_type == "Large Ticket":
         large_ticket_number = st.text_input(
             "Enter Large Ticket Number:", 
-            help="This is the primary ticket number for a group of tickets."
+            help="This ticket represents a group of sub-tickets."
         )
         num_sub_tickets = st.number_input(
             "Number of Sub-Tickets", 
@@ -139,8 +135,6 @@ elif menu == "Add Return Tickets":
 elif menu == "Manage Tickets":
     st.header("Manage Tickets")
     st.markdown("Use the search box below to filter tickets by ticket number or batch name.")
-    
-    # Interactive search box to filter tickets.
     search_query = st.text_input("Search Tickets", help="Enter ticket number or batch name to filter results.")
     if search_query:
         query = "SELECT * FROM tickets WHERE ticket_number LIKE ? OR batch_name LIKE ?"
@@ -161,15 +155,17 @@ elif menu == "Manage Tickets":
                 st.success(f"Ticket '{ticket_to_resolve}' resolved.")
             else:
                 st.error("Please enter a valid ticket number.")
-    
     st.info("Tip: Use the search box above to quickly locate tickets before resolving them.")
 
 # --- Page: Dashboard ---
 elif menu == "Dashboard":
     st.header("Dashboard")
     df = pd.read_sql("SELECT * FROM tickets", conn)
+    # Ensure columns "pay" and "num_sub_tickets" exist, else add default values.
     if "pay" not in df.columns:
         df["pay"] = 5.5
+    if "num_sub_tickets" not in df.columns:
+        df["num_sub_tickets"] = 1
     total_tickets = df.shape[0]
     unresolved_tickets = df[df["status"] == "Open"].shape[0]
     resolved_tickets = df[df["status"] == "Resolved"].shape[0]
@@ -184,7 +180,7 @@ elif menu == "Dashboard":
     st.markdown("### All Ticket Records")
     st.dataframe(df)
     
-    # Option to download the ticket data as CSV.
+    # Provide option to download data as CSV.
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download Tickets as CSV",
@@ -192,5 +188,4 @@ elif menu == "Dashboard":
         file_name='tickets.csv',
         mime='text/csv'
     )
-    
-    st.info("Suggestion: Regularly review your dashboard metrics to track your ticket processing performance.")
+    st.info("Review the dashboard metrics and download the CSV for further analysis.")
