@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import datetime
 
-# Cache the database connection as a resource (persist across reruns & sessions)
+# Cache the database connection so it persists across reruns and sessions.
 @st.cache_resource
 def get_db_connection():
     conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
@@ -12,7 +12,7 @@ def get_db_connection():
 conn = get_db_connection()
 cursor = conn.cursor()
 
-# Create tables if they don't exist
+# Create the Users table.
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 ''')
 
+# Create the Tickets table with a created_by field to associate tickets with users.
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,61 +32,74 @@ CREATE TABLE IF NOT EXISTS tickets (
     num_sub_tickets INTEGER DEFAULT 0,
     status TEXT DEFAULT 'Open',
     type TEXT,
-    pay REAL DEFAULT 5.5
+    pay REAL DEFAULT 5.5,
+    created_by TEXT
 )
 ''')
 conn.commit()
 
-# Insert default user if one doesn't exist
+# Insert a default user if none exists.
 cursor.execute("SELECT * FROM users WHERE username=?", ("admin",))
 if cursor.fetchone() is None:
     cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("admin", "password"))
     conn.commit()
 
-# Initialize session state for authentication
+# Initialize session state for login.
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
-# Display login form if not logged in
+def login(username, password):
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    user = cursor.fetchone()
+    if user:
+        st.session_state.logged_in = True
+        st.session_state.username = username
+        return True
+    return False
+
+def logout():
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    st.experimental_rerun()
+
+# Display login form if not logged in.
 if not st.session_state.logged_in:
     st.sidebar.title("Login")
     login_username = st.sidebar.text_input("Username")
     login_password = st.sidebar.text_input("Password", type="password")
     if st.sidebar.button("Login"):
-        cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (login_username, login_password))
-        user = cursor.fetchone()
-        if user:
-            st.session_state.logged_in = True
-            st.session_state.username = login_username
+        if login(login_username, login_password):
             st.sidebar.success(f"Logged in as {login_username}")
         else:
             st.sidebar.error("Invalid username or password")
     st.stop()
 
-# Sidebar logout button and current user display
+# Sidebar: Show logged in user and a logout button.
 st.sidebar.write(f"Logged in as: {st.session_state.username}")
 if st.sidebar.button("Logout"):
-    st.session_state.logged_in = False
-    st.experimental_rerun()
+    logout()
 
-# Main menu using radio buttons
+# Main menu.
 menu = st.sidebar.radio("Menu", ["Add Tickets", "Manage Tickets", "Dashboard", "Users"])
 
 if menu == "Add Tickets":
     st.header("Add Tickets")
-    # Select ticket category: Intake or Outgoing
+    # Choose Ticket Category: Intake or Outgoing.
     ticket_category = st.radio("Select Ticket Category", ["Intake", "Outgoing"])
-    # Select entry type: General Ticket or Large Ticket
+    # Choose Ticket Entry Type.
     ticket_entry_type = st.radio("Select Ticket Entry Type", ["General Ticket", "Large Ticket"])
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.datetime.now().strftime("%H:%M:%S")
-    # Generate a new batch name based on distinct batches already in the table
-    cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
+    
+    # Generate a new batch name based on the number of distinct batches for this user.
+    cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets WHERE created_by=?", (st.session_state.username,))
     batch_count = cursor.fetchone()[0] + 1
     batch_name = f"Batch-{batch_count}"
     
     if ticket_entry_type == "General Ticket":
-        # Accept multiple ticket numbers separated by spaces
+        # Accept multiple ticket numbers separated by spaces.
         ticket_numbers_input = st.text_input("Enter Ticket Numbers (separated by space):")
         if st.button("Add General Tickets"):
             ticket_numbers_input = ticket_numbers_input.strip()
@@ -97,9 +111,9 @@ if menu == "Add Tickets":
                     if tn:
                         try:
                             cursor.execute('''
-                                INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ''', (current_date, current_time, batch_name, tn, 1, ticket_category, 5.5))
+                            INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, created_by)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (current_date, current_time, batch_name, tn, 1, ticket_category, 5.5, st.session_state.username))
                             success_count += 1
                         except sqlite3.IntegrityError:
                             st.error(f"Ticket number '{tn}' already exists.")
@@ -110,7 +124,7 @@ if menu == "Add Tickets":
                 st.error("Please enter at least one ticket number.")
                     
     elif ticket_entry_type == "Large Ticket":
-        # Single large ticket number and a separate input for number of sub-tickets
+        # Single large ticket number and separate input for number of sub-tickets.
         large_ticket_number = st.text_input("Enter Large Ticket Number:")
         num_sub_tickets = st.number_input("Number of Sub-Tickets", min_value=1, step=1, value=1)
         if st.button("Add Large Ticket"):
@@ -118,9 +132,9 @@ if menu == "Add Tickets":
             if large_ticket_number:
                 try:
                     cursor.execute('''
-                        INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (current_date, current_time, batch_name, large_ticket_number, num_sub_tickets, ticket_category, 5.5))
+                    INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (current_date, current_time, batch_name, large_ticket_number, num_sub_tickets, ticket_category, 5.5, st.session_state.username))
                     conn.commit()
                     st.success(f"Added large ticket '{large_ticket_number}' with {num_sub_tickets} sub-tickets as {ticket_category}.")
                 except sqlite3.IntegrityError:
@@ -130,18 +144,20 @@ if menu == "Add Tickets":
 
 elif menu == "Manage Tickets":
     st.header("Manage Tickets")
-    df = pd.read_sql("SELECT * FROM tickets", conn)
+    # Display only tickets for the logged in user.
+    df = pd.read_sql("SELECT * FROM tickets WHERE created_by=?", conn, params=(st.session_state.username,))
     st.dataframe(df)
     ticket_to_resolve = st.text_input("Enter Ticket Number to Resolve:")
     if st.button("Resolve Ticket"):
         ticket_to_resolve = ticket_to_resolve.strip()
-        cursor.execute("UPDATE tickets SET status='Resolved' WHERE ticket_number=?", (ticket_to_resolve,))
+        cursor.execute("UPDATE tickets SET status='Resolved' WHERE ticket_number=? AND created_by=?", (ticket_to_resolve, st.session_state.username))
         conn.commit()
         st.success(f"Ticket '{ticket_to_resolve}' resolved.")
 
 elif menu == "Dashboard":
     st.header("Dashboard")
-    df = pd.read_sql("SELECT * FROM tickets", conn)
+    # Show metrics only for the logged in user.
+    df = pd.read_sql("SELECT * FROM tickets WHERE created_by=?", conn, params=(st.session_state.username,))
     total_tickets = df.shape[0]
     unresolved_tickets = df[df["status"] == "Open"].shape[0]
     resolved_tickets = df[df["status"] == "Resolved"].shape[0]
