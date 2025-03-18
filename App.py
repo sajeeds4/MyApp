@@ -141,9 +141,11 @@ if "ticket_school" not in column_names:
 # Sidebar Navigation
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
-menu = st.sidebar.radio("Go to", 
-                        ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],
-                        index=0)
+menu = st.sidebar.radio(
+    "Go to",
+    ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],  # "Add Return Tickets" removed
+    index=0
+)
 
 # -----------------------------------------------------------
 # Function: Add Intake Tickets (bulk)
@@ -167,6 +169,7 @@ def add_intake_tickets():
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.datetime.now().strftime("%H:%M:%S")
     
+    # Auto-generate batch name if not provided
     if user_batch.strip() == "":
         cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
         batch_count = cursor.fetchone()[0] + 1
@@ -521,7 +524,7 @@ elif menu == "Dashboard":
 elif menu == "Settings":
     st.header("Application Settings")
     st.markdown("Adjust the global settings for your ticket management app below.")
-    ticket_price = st.number_input("Fixed Ticket Price", min_value=0.0, value=st.session_state.ticket_price, step=0.5)
+    ticket_price = st.number_input("Fixed Ticket Price", min_value=0.0, value=5.5, step=0.5)
     st.session_state.ticket_price = ticket_price
     st.success("Settings updated!")
     st.markdown("All new tickets will use the updated ticket price.")
