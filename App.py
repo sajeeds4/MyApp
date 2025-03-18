@@ -359,6 +359,21 @@ elif menu == "Manage Tickets":
                 else:
                     st.error("Enter a valid ticket number.")
         
+        # -----------------------------------------------------------
+        # New: Separate Box for Updating Ticket Status
+        # -----------------------------------------------------------
+        with st.expander("Update Ticket Status"):
+            update_ticket_number = st.text_input("Enter Ticket Number to Update", key="update_status")
+            new_status = st.selectbox("New Status", ["Intake", "Done", "Returned"], key="update_status_select")
+            if st.button("Update Status", key="update_status_btn"):
+                update_ticket_number = update_ticket_number.strip()
+                if update_ticket_number:
+                    cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status, update_ticket_number))
+                    conn.commit()
+                    st.success(f"Ticket '{update_ticket_number}' status updated to '{new_status}'.")
+                else:
+                    st.error("Please enter a valid ticket number.")
+        
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
 # -----------------------------------------------------------
