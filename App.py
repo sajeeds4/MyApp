@@ -190,6 +190,12 @@ def add_tickets(ticket_category):
         else:
             batch_name = user_batch.strip()
         
+        # Determine the default status based on ticket category
+        if ticket_category == "Intake":
+            status_value = "Intake"
+        else:
+            status_value = "Returned"
+        
         if ticket_entry_type == "General Ticket":
             ticket_input = st.text_area("Enter Ticket Numbers", 
                                         height=150, 
@@ -205,9 +211,9 @@ def add_tickets(ticket_category):
                             try:
                                 cursor.execute(
                                     """INSERT INTO tickets 
-                                    (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                    (current_date, current_time, batch_name, tn, 1, ticket_category, st.session_state.ticket_price, 
+                                    (date, time, batch_name, ticket_number, num_sub_tickets, status, type, pay, ticket_day, ticket_school)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    (current_date, current_time, batch_name, tn, 1, status_value, ticket_category, st.session_state.ticket_price, 
                                      ticket_day.strip() if ticket_day.strip() != "" else None, 
                                      ticket_school.strip() if ticket_school.strip() != "" else None)
                                 )
@@ -229,9 +235,9 @@ def add_tickets(ticket_category):
                     try:
                         cursor.execute(
                             """INSERT INTO tickets 
-                            (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (current_date, current_time, batch_name, large_ticket, sub_ticket_count, ticket_category, st.session_state.ticket_price,
+                            (date, time, batch_name, ticket_number, num_sub_tickets, status, type, pay, ticket_day, ticket_school)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (current_date, current_time, batch_name, large_ticket, sub_ticket_count, status_value, ticket_category, st.session_state.ticket_price,
                              ticket_day.strip() if ticket_day.strip() != "" else None,
                              ticket_school.strip() if ticket_school.strip() != "" else None)
                         )
@@ -266,7 +272,7 @@ elif menu == "Manage Tickets":
         col1, col2, col3, col4 = st.columns(4)
         start_date = col1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
         end_date = col2.date_input("End Date", datetime.date.today())
-        status_filter = col3.selectbox("Status", ["All", "Open", "Resolved"])
+        status_filter = col3.selectbox("Status", ["All", "Intake", "Done", "Returned"])
         type_filter = col4.selectbox("Ticket Type", ["All", "Intake", "Return"])
         
         search_term = st.text_input("Search", help="Search by ticket number or batch name")
@@ -313,7 +319,13 @@ elif menu == "Manage Tickets":
                         st.write("Current Ticket Details:")
                         st.json(ticket_dict)
                         
-                        new_status = st.selectbox("Update Status", ["Open", "Resolved"], index=0 if ticket_dict["status"]=="Open" else 1)
+                        # Allow updating status with new options: Intake, Done, Returned
+                        status_options = ["Intake", "Done", "Returned"]
+                        try:
+                            default_index = status_options.index(ticket_dict["status"])
+                        except ValueError:
+                            default_index = 0
+                        new_status = st.selectbox("Update Status", status_options, index=default_index)
                         new_comments = st.text_area("Comments", value=ticket_dict.get("comments", ""))
                         
                         if st.button("Update Ticket"):
@@ -331,9 +343,9 @@ elif menu == "Manage Tickets":
             if st.button("Resolve Ticket"):
                 ticket_to_resolve = ticket_to_resolve.strip()
                 if ticket_to_resolve:
-                    cursor.execute("UPDATE tickets SET status='Resolved' WHERE ticket_number=?", (ticket_to_resolve,))
+                    cursor.execute("UPDATE tickets SET status='Done' WHERE ticket_number=?", (ticket_to_resolve,))
                     conn.commit()
-                    st.success(f"Ticket '{ticket_to_resolve}' marked as Resolved.")
+                    st.success(f"Ticket '{ticket_to_resolve}' marked as Done.")
                 else:
                     st.error("Enter a valid ticket number.")
         with st.expander("Delete a Ticket"):
@@ -368,14 +380,14 @@ elif menu == "Dashboard":
         actual_earning = (return_df["pay"] * return_df["num_sub_tickets"]).sum()
         
         total_tickets = df.shape[0]
-        unresolved_tickets = df[df["status"] == "Open"].shape[0]
-        resolved_tickets = df[df["status"] == "Resolved"].shape[0]
+        unresolved_tickets = df[df["status"].isin(["Intake", "Done"])].shape[0]
+        resolved_tickets = df[df["status"] == "Returned"].shape[0]
         
         # Display KPI Cards
         kpi_cols = st.columns(5)
         kpi_cols[0].metric("Total Tickets", total_tickets)
-        kpi_cols[1].metric("Resolved Tickets", resolved_tickets)
-        kpi_cols[2].metric("Unresolved Tickets", unresolved_tickets)
+        kpi_cols[1].metric("Returned Tickets", resolved_tickets)
+        kpi_cols[2].metric("In-Progress (Intake/Done)", unresolved_tickets)
         kpi_cols[3].metric("Estimated Earnings (Intake)", f"${estimated_earning:.2f}")
         kpi_cols[4].metric("Actual Earnings (Return)", f"${actual_earning:.2f}")
         
