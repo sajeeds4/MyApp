@@ -267,6 +267,28 @@ elif menu == "Add Return Tickets":
 elif menu == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
+        
+        # -----------------------------------------------------------
+        # New: Header Tabs for Different Statuses
+        # -----------------------------------------------------------
+        status_tabs = st.tabs(["Intake", "Done", "Returned", "All"])
+        with status_tabs[0]:
+            st.subheader("Intake Tickets")
+            df_intake = pd.read_sql("SELECT * FROM tickets WHERE status = 'Intake'", conn)
+            st.dataframe(df_intake)
+        with status_tabs[1]:
+            st.subheader("Done Tickets")
+            df_done = pd.read_sql("SELECT * FROM tickets WHERE status = 'Done'", conn)
+            st.dataframe(df_done)
+        with status_tabs[2]:
+            st.subheader("Returned Tickets")
+            df_returned = pd.read_sql("SELECT * FROM tickets WHERE status = 'Returned'", conn)
+            st.dataframe(df_returned)
+        with status_tabs[3]:
+            st.subheader("All Tickets")
+            df_all = pd.read_sql("SELECT * FROM tickets", conn)
+            st.dataframe(df_all)
+        
         st.markdown("Use the filters below to locate and manage your tickets:")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -374,7 +396,6 @@ elif menu == "Manage Tickets":
                         tn = tn.strip()
                         if tn:
                             cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status_multi, tn))
-                            # Optionally, you could check if any row was updated for each ticket.
                             success_count += 1
                     conn.commit()
                     st.success(f"Updated status for {success_count} tickets to '{new_status_multi}'.")
