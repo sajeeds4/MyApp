@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS to enhance the look (light mode)
+# Custom CSS for a modern, light-mode look and top navbar styling
 st.markdown(
     """
     <style>
@@ -26,7 +26,7 @@ st.markdown(
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         color: #333;
     }
-    /* Container styling for main content */
+    /* Main container styling */
     .reportview-container .main .block-container {
         padding: 2rem;
         background-color: #ffffff;
@@ -37,7 +37,32 @@ st.markdown(
     .sidebar .sidebar-content {
         background-color: #ffffff;
     }
-    /* Header banner */
+    /* Top Navigation Bar */
+    .topnav {
+      overflow: hidden;
+      background-color: #333;
+      border-radius: 10px;
+      margin-bottom: 1rem;
+    }
+    .topnav a {
+      float: left;
+      display: block;
+      color: #f2f2f2;
+      text-align: center;
+      padding: 14px 20px;
+      text-decoration: none;
+      font-size: 17px;
+      transition: background-color 0.3s;
+    }
+    .topnav a:hover {
+      background-color: #ddd;
+      color: black;
+    }
+    .topnav a.active {
+      background-color: #04AA6D;
+      color: white;
+    }
+    /* Header banner styling */
     .header-banner {
         background-image: url('https://via.placeholder.com/1500x200.png?text=Your+Business+Tagline');
         background-size: cover;
@@ -87,7 +112,44 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Load Lottie Animation for Navigation
+# Top Navigation Bar (using query parameters for navigation)
+# -----------------------------------------------------------
+st.markdown(
+    """
+    <div class="topnav">
+      <a href="?page=Add+Intake+Tickets" class="{active_intake}">Add Intake Tickets</a>
+      <a href="?page=Add+Return+Tickets" class="{active_return}">Add Return Tickets</a>
+      <a href="?page=Manage+Tickets" class="{active_manage}">Manage Tickets</a>
+      <a href="?page=Dashboard" class="{active_dashboard}">Dashboard</a>
+      <a href="?page=Settings" class="{active_settings}">Settings</a>
+    </div>
+    """, unsafe_allow_html=True
+)
+
+# -----------------------------------------------------------
+# Read Query Parameters for Navigation
+# -----------------------------------------------------------
+query_params = st.experimental_get_query_params()
+page = query_params.get("page", ["Add Intake Tickets"])[0]
+
+# Define active class for nav bar links
+def active_class(link_page):
+    return "active" if page == link_page else ""
+
+# Render top navbar with active class substitution
+nav_html = f"""
+<div class="topnav">
+  <a href="?page=Add+Intake+Tickets" class="{active_class('Add Intake Tickets')}">Add Intake Tickets</a>
+  <a href="?page=Add+Return+Tickets" class="{active_class('Add Return Tickets')}">Add Return Tickets</a>
+  <a href="?page=Manage+Tickets" class="{active_class('Manage Tickets')}">Manage Tickets</a>
+  <a href="?page=Dashboard" class="{active_class('Dashboard')}">Dashboard</a>
+  <a href="?page=Settings" class="{active_class('Settings')}">Settings</a>
+</div>
+"""
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# -----------------------------------------------------------
+# Load Lottie Animation for Sidebar Navigation (Optional)
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -118,7 +180,7 @@ conn = get_db_connection()
 cursor = conn.cursor()
 
 # -----------------------------------------------------------
-# Create Tickets Table with additional columns: comments, ticket_day, ticket_school
+# Create Tickets Table with extra optional fields (comments, ticket_day, ticket_school)
 # -----------------------------------------------------------
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
@@ -150,17 +212,9 @@ if "ticket_school" not in column_names:
     conn.commit()
 
 # -----------------------------------------------------------
-# Sidebar Navigation (with interactive animations)
-# -----------------------------------------------------------
-st.sidebar.title("Navigation")
-menu = st.sidebar.radio("Go to", 
-                        ["Add Intake Tickets", "Add Return Tickets", "Manage Tickets", "Dashboard", "Settings"],
-                        index=0)
-
-# -----------------------------------------------------------
 # Function: Add Tickets (for Intake or Return)
 # -----------------------------------------------------------
-def add_tickets(ticket_category):
+def add_tickets_page(ticket_category):
     with st.spinner("Loading Add Tickets page..."):
         st.header(f"Add {ticket_category} Tickets")
         st.markdown(
@@ -170,7 +224,7 @@ def add_tickets(ticket_category):
             - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
             """
         )
-        # Optional user-provided inputs for Batch Name, Ticket Day, Ticket School
+        # Optional inputs for Batch Name, Ticket Day, Ticket School
         user_batch = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
         ticket_day = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
         ticket_school = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
@@ -182,7 +236,7 @@ def add_tickets(ticket_category):
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         
-        # If batch name not provided, auto-generate one
+        # Use provided batch name or auto-generate one
         if user_batch.strip() == "":
             cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
             batch_count = cursor.fetchone()[0] + 1
@@ -244,21 +298,16 @@ def add_tickets(ticket_category):
                     st.error("Please enter a valid ticket number.")
 
 # -----------------------------------------------------------
-# Page: Add Intake Tickets
+# Navigation Based on Query Parameter "page"
 # -----------------------------------------------------------
-if menu == "Add Intake Tickets":
-    add_tickets("Intake")
-
+if page == "Add Intake Tickets":
+    add_tickets_page("Intake")
+elif page == "Add Return Tickets":
+    add_tickets_page("Return")
 # -----------------------------------------------------------
-# Page: Add Return Tickets
+# Page: Manage Tickets (Filtering, Sorting, Pagination, Editing)
 # -----------------------------------------------------------
-elif menu == "Add Return Tickets":
-    add_tickets("Return")
-
-# -----------------------------------------------------------
-# Page: Manage Tickets (Advanced Filtering, Sorting, Pagination, Editing)
-# -----------------------------------------------------------
-elif menu == "Manage Tickets":
+elif page == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
         st.markdown("Use the filters below to locate and manage your tickets:")
@@ -350,9 +399,9 @@ elif menu == "Manage Tickets":
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
 # -----------------------------------------------------------
-# Page: Dashboard (Fully Graphical, Interactive Analytics & Business Insights)
+# Page: Dashboard (Interactive Analytics & Business Insights)
 # -----------------------------------------------------------
-elif menu == "Dashboard":
+elif page == "Dashboard":
     with st.spinner("Loading Dashboard..."):
         st.header("Dashboard Analytics")
         df = pd.read_sql("SELECT * FROM tickets", conn)
@@ -371,7 +420,7 @@ elif menu == "Dashboard":
         unresolved_tickets = df[df["status"] == "Open"].shape[0]
         resolved_tickets = df[df["status"] == "Resolved"].shape[0]
         
-        # Display KPI Cards
+        # KPI Cards
         kpi_cols = st.columns(5)
         kpi_cols[0].metric("Total Tickets", total_tickets)
         kpi_cols[1].metric("Resolved Tickets", resolved_tickets)
@@ -382,6 +431,7 @@ elif menu == "Dashboard":
         st.markdown("### Ticket Data Overview")
         st.dataframe(df.style.format({"pay": "${:,.2f}"}))
         
+        st.markdown("### Interactive Charts")
         # Dropdown to select chart type
         chart_type = st.selectbox("Select Chart Type", 
                                   ["Ticket Count by Status (Bar)", "Ticket Count by Category (Bar)",
@@ -444,7 +494,7 @@ elif menu == "Dashboard":
 # -----------------------------------------------------------
 # Page: Settings (Configurable Settings)
 # -----------------------------------------------------------
-elif menu == "Settings":
+elif page == "Settings":
     with st.spinner("Loading Settings..."):
         st.header("Application Settings")
         st.markdown("Adjust the global settings for your ticket management app below.")
