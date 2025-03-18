@@ -9,7 +9,7 @@ import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
 
 # -----------------------------------------------------------
-# Page Configuration & Custom CSS
+# Page Configuration & Custom CSS (Modern Full-HD Look)
 # -----------------------------------------------------------
 st.set_page_config(
     page_title="Ticket Management Dashboard",
@@ -20,16 +20,21 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Global styling */
     body {
         background-color: #f5f5f5;
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         color: #333;
+        margin: 0;
+        padding: 0;
     }
     .reportview-container .main .block-container {
         padding: 2rem;
         background-color: #ffffff;
         border-radius: 10px;
         box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        max-width: 1200px;
+        margin: auto;
     }
     .sidebar .sidebar-content {
         background-color: #ffffff;
@@ -47,6 +52,11 @@ st.markdown(
     .header-banner h1 {
         font-size: 3rem;
         font-weight: bold;
+        margin: 0;
+    }
+    .header-banner p {
+        font-size: 1.5rem;
+        margin: 0.5rem 0 0;
     }
     .stMetric {
         background-color: #ffffff;
@@ -63,13 +73,31 @@ st.markdown(
         padding: 1rem;
         color: #777;
     }
+    /* Custom Button Styling for a modern look */
+    div.stButton > button {
+        background-color: #4CAF50;
+        color: white;
+        font-size: 16px;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 24px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #45a049;
+    }
+    /* Custom Input styling (optional) */
+    input, textarea, select {
+        font-size: 16px !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------
-# Top Banner (Logo + Tagline)
+# Top Banner (Logo and Tagline)
 # -----------------------------------------------------------
 st.markdown(
     """
@@ -82,7 +110,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Optional Lottie Animation in Sidebar
+# Load Lottie Animation for Navigation
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -96,7 +124,7 @@ if lottie_nav:
     st_lottie(lottie_nav, height=150, key="nav")
 
 # -----------------------------------------------------------
-# Database Connection (No caching -> always fresh data)
+# Database Connection (always fresh for updates)
 # -----------------------------------------------------------
 def get_db_connection():
     conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
@@ -106,7 +134,7 @@ conn = get_db_connection()
 cursor = conn.cursor()
 
 # -----------------------------------------------------------
-# Create Tickets Table (status-based earnings)
+# Create Tickets Table if not exists (using only status "Intake" or "Return")
 # -----------------------------------------------------------
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
@@ -116,8 +144,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     batch_name TEXT,
     ticket_number TEXT UNIQUE,
     num_sub_tickets INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'Intake',  -- "Intake" or "Return"
-    pay REAL DEFAULT 5.5,          -- $5.5 per sub-ticket
+    status TEXT DEFAULT 'Intake',
+    pay REAL DEFAULT 5.5,
     comments TEXT DEFAULT '',
     ticket_day TEXT,
     ticket_school TEXT
@@ -125,8 +153,6 @@ CREATE TABLE IF NOT EXISTS tickets (
 ''')
 conn.commit()
 
-# If columns existed from old code, remove references to "type" if not used:
-# (We won't rely on "type" anymore for earnings. Just "status".)
 cursor.execute("PRAGMA table_info(tickets)")
 columns_info = cursor.fetchall()
 column_names = [col[1] for col in columns_info]
@@ -138,17 +164,17 @@ if "ticket_school" not in column_names:
     conn.commit()
 
 # -----------------------------------------------------------
-# Sidebar Navigation
+# Sidebar Navigation (Optimized for a Clean, Modern Look)
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
 menu = st.sidebar.radio(
     "Go to",
-    ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],  # "Add Return Tickets" removed
+    ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],
     index=0
 )
 
 # -----------------------------------------------------------
-# Page 1: Add Intake Tickets
+# Page: Add Intake Tickets
 # -----------------------------------------------------------
 def add_intake_tickets():
     st.header("Add Intake Tickets")
@@ -159,9 +185,8 @@ def add_intake_tickets():
         - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
         """
     )
-    # Optional inputs
-    user_batch    = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
-    ticket_day    = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
+    user_batch = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
+    ticket_day = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
     ticket_school = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
     
     ticket_entry_type = st.radio("Select Ticket Entry Type", 
@@ -177,7 +202,7 @@ def add_intake_tickets():
     else:
         batch_name = user_batch.strip()
     
-    # All new tickets are always "Intake"
+    # New tickets are always created as Intake
     status_value = "Intake"
     
     if ticket_entry_type == "General Ticket":
@@ -194,20 +219,12 @@ def add_intake_tickets():
                     if tn:
                         try:
                             cursor.execute(
-                                """INSERT INTO tickets
+                                """INSERT INTO tickets 
                                 (date, time, batch_name, ticket_number, num_sub_tickets, status, pay, ticket_day, ticket_school)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                (
-                                    current_date,
-                                    current_time,
-                                    batch_name,
-                                    tn,
-                                    1,
-                                    status_value,
-                                    st.session_state.ticket_price,
-                                    ticket_day.strip() if ticket_day.strip() else None,
-                                    ticket_school.strip() if ticket_school.strip() else None
-                                )
+                                (current_date, current_time, batch_name, tn, 1, status_value, st.session_state.ticket_price, 
+                                 ticket_day.strip() if ticket_day.strip() else None, 
+                                 ticket_school.strip() if ticket_school.strip() else None)
                             )
                             success_count += 1
                         except sqlite3.IntegrityError:
@@ -218,28 +235,20 @@ def add_intake_tickets():
                     st.balloons()
             else:
                 st.error("Please enter some ticket numbers.")
-    else:  # Large Ticket
-        large_ticket      = st.text_input("Enter Large Ticket Number", help="This ticket represents a group.")
-        sub_ticket_count  = st.number_input("Number of Sub-Tickets", min_value=1, value=1, step=1)
+    else:
+        large_ticket = st.text_input("Enter Large Ticket Number", help="This ticket represents a group.")
+        sub_ticket_count = st.number_input("Number of Sub-Tickets", min_value=1, value=1, step=1)
         if st.button("Add Large Ticket"):
             large_ticket = large_ticket.strip()
             if large_ticket:
                 try:
                     cursor.execute(
-                        """INSERT INTO tickets
+                        """INSERT INTO tickets 
                         (date, time, batch_name, ticket_number, num_sub_tickets, status, pay, ticket_day, ticket_school)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            current_date,
-                            current_time,
-                            batch_name,
-                            large_ticket,
-                            sub_ticket_count,
-                            status_value,
-                            st.session_state.ticket_price,
-                            ticket_day.strip() if ticket_day.strip() else None,
-                            ticket_school.strip() if ticket_school.strip() else None
-                        )
+                        (current_date, current_time, batch_name, large_ticket, sub_ticket_count, status_value, st.session_state.ticket_price,
+                         ticket_day.strip() if ticket_day.strip() else None,
+                         ticket_school.strip() if ticket_school.strip() else None)
                     )
                     conn.commit()
                     st.success(f"Successfully added large ticket '{large_ticket}' with {sub_ticket_count} sub-tickets as Intake.")
@@ -249,13 +258,16 @@ def add_intake_tickets():
             else:
                 st.error("Please enter a valid ticket number.")
 
+if menu == "Add Intake Tickets":
+    add_intake_tickets()
+
 # -----------------------------------------------------------
-# Page 2: Manage Tickets
+# Page: Manage Tickets
 # -----------------------------------------------------------
 def manage_tickets():
     st.header("Manage Tickets")
     
-    # Tabs for "Intake Tickets", "Return Tickets", "All Tickets"
+    # Tabs for viewing tickets by status
     status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
     with status_tabs[0]:
         st.subheader("Intake Tickets")
@@ -270,52 +282,42 @@ def manage_tickets():
         df_all = pd.read_sql("SELECT * FROM tickets", conn)
         st.dataframe(df_all)
     
-    # Put the filters in an expander for a cleaner look
+    # Collapsible filters
     with st.expander("Show Filters"):
-        st.markdown("Use the filters below to locate and manage your tickets:")
-        
         col1, col2, col3, col4 = st.columns(4)
         start_date = col1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
         end_date   = col2.date_input("End Date", datetime.date.today())
-        
         status_filter = col3.selectbox("Status", ["All", "Intake", "Return"])
-        # If you have a type column, you can filter by type as well. 
-        # If you don't use type anymore, you can remove it from the code or keep as needed.
         type_filter   = col4.selectbox("Ticket Type", ["All", "Intake", "Return"])
-        
         search_term   = st.text_input("Search", help="Search by ticket number or batch name")
         order_by      = st.selectbox("Sort By", ["date", "ticket_number", "status"], index=0)
     
     query = "SELECT * FROM tickets WHERE date BETWEEN ? AND ?"
     params = [start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]
-    
     if status_filter != "All":
         query += " AND status = ?"
         params.append(status_filter)
     if type_filter != "All":
-        # only if you still store "type" in the DB
-        query += " AND status = ?"  # or if you do have a "type" column, "AND type = ?"
+        query += " AND status = ?"  # since type = status in our setup
         params.append(type_filter)
     if search_term:
         query += " AND (ticket_number LIKE ? OR batch_name LIKE ?)"
         params.extend([f"%{search_term}%", f"%{search_term}%"])
-    
     query += f" ORDER BY {order_by} DESC"
     
     df_filtered = pd.read_sql(query, conn, params=params)
     
     page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
     page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
-    
     total_tickets = df_filtered.shape[0]
-    start_index   = (page_number - 1) * page_size
-    end_index     = start_index + page_size
-    paginated_df  = df_filtered.iloc[start_index:end_index]
+    start_index = (page_number - 1) * page_size
+    end_index = start_index + page_size
+    paginated_df = df_filtered.iloc[start_index:end_index]
     
     st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
     st.dataframe(paginated_df)
     
-    # Single Ticket Editing
+    # Edit Single Ticket
     with st.expander("Edit Ticket Details"):
         ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
         if st.button("Load Ticket"):
@@ -328,22 +330,16 @@ def manage_tickets():
                     ticket_dict = dict(zip(cols, ticket_data))
                     st.write("Current Ticket Details:")
                     st.json(ticket_dict)
-                    
                     status_options = ["Intake", "Return"]
                     try:
                         default_index = status_options.index(ticket_dict["status"])
                     except ValueError:
                         default_index = 0
                     new_status = st.selectbox("Update Status", status_options, index=default_index)
-                    
                     new_comments = st.text_area("Comments", value=ticket_dict.get("comments", ""))
-                    
                     if st.button("Update Ticket"):
-                        # Update the DB
-                        cursor.execute(
-                            "UPDATE tickets SET status=?, comments=? WHERE ticket_number=?",
-                            (new_status, new_comments, ticket_to_edit)
-                        )
+                        cursor.execute("UPDATE tickets SET status=?, comments=? WHERE ticket_number=?",
+                                       (new_status, new_comments, ticket_to_edit))
                         conn.commit()
                         st.success("Ticket updated successfully!")
                 else:
@@ -363,11 +359,10 @@ def manage_tickets():
             else:
                 st.error("Enter a valid ticket number.")
     
-    # Bulk Update by Listing Ticket Numbers
+    # Bulk Update Section
     with st.expander("Update Multiple Ticket Statuses"):
         update_ticket_numbers = st.text_input("Enter Ticket Numbers to Update (separated by space)", key="update_status_multi")
         new_status_multi = st.selectbox("New Status", ["Intake", "Return"], key="update_status_select_multi")
-        
         if st.button("Update Status for Multiple Tickets", key="update_status_btn_multi"):
             update_ticket_numbers = update_ticket_numbers.strip()
             if update_ticket_numbers:
@@ -383,7 +378,7 @@ def manage_tickets():
             else:
                 st.error("Please enter at least one ticket number.")
     
-    # Update All Filtered to Return
+    # Option to Update All Filtered Tickets to Return
     with st.expander("Update All Filtered Tickets to Return"):
         if st.button("Update All Filtered Tickets to Return"):
             if not df_filtered.empty:
@@ -433,7 +428,7 @@ def manage_tickets():
         components.html(html_code_all, height=0)
         st.success("All tickets copied to clipboard!")
     
-    # Custom SQL Query
+    # Custom SQL Query Box
     with st.expander("Execute Custom SQL Query"):
         sql_query = st.text_area("Enter SQL Query")
         if st.button("Execute Query"):
@@ -449,6 +444,9 @@ def manage_tickets():
                     st.success("Query executed successfully.")
             except Exception as e:
                 st.error("Error executing query: " + str(e))
+                
+if menu == "Manage Tickets":
+    manage_tickets()
 
 # -----------------------------------------------------------
 # Page: Dashboard
@@ -457,28 +455,24 @@ def dashboard():
     st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
     
-    # Optional batch filter
+    # Optional Batch Filter
     all_batches = ["All"] + sorted(set(df["batch_name"].dropna().tolist()))
     selected_batch = st.selectbox("Select Batch to View", all_batches)
     if selected_batch != "All":
         df = df[df["batch_name"] == selected_batch]
     
-    # Use "status" for earnings calculations
     if "pay" not in df.columns:
         df["pay"] = st.session_state.ticket_price
     if "num_sub_tickets" not in df.columns:
         df["num_sub_tickets"] = 1
 
-    total_tickets   = df["num_sub_tickets"].sum()
-    intake_tickets  = df[df["status"] == "Intake"]["num_sub_tickets"].sum()
-    return_tickets  = df[df["status"] == "Return"]["num_sub_tickets"].sum()
+    total_tickets  = df["num_sub_tickets"].sum()
+    intake_tickets = df[df["status"] == "Intake"]["num_sub_tickets"].sum()
+    return_tickets = df[df["status"] == "Return"]["num_sub_tickets"].sum()
     
-    # Calculate earnings purely from "status"
-    # $5.5 per sub-ticket by default, or user-defined in Settings
-    # "Estimated Earnings" is from "Intake" tickets
-    # "Actual Earnings" is from "Return" tickets
-    intake_df       = df[df["status"] == "Intake"]
-    return_df       = df[df["status"] == "Return"]
+    # Earnings are calculated based on status
+    intake_df = df[df["status"] == "Intake"]
+    return_df = df[df["status"] == "Return"]
     estimated_earning = (intake_df["pay"] * intake_df["num_sub_tickets"]).sum()
     actual_earning    = (return_df["pay"] * return_df["num_sub_tickets"]).sum()
     
@@ -504,14 +498,12 @@ def dashboard():
         fig = px.bar(status_counts, x="status", y="count", color="status", title="Ticket Count by Status",
                      template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
-    
     elif chart_type == "Ticket Status Distribution (Pie)":
         status_counts = df["status"].value_counts().reset_index()
         status_counts.columns = ["status", "count"]
         fig = px.pie(status_counts, names="status", values="count", title="Ticket Status Distribution",
                      template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
-    
     elif chart_type == "Tickets Over Time (Line)":
         try:
             df["date"] = pd.to_datetime(df["date"])
@@ -520,8 +512,7 @@ def dashboard():
                           template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
-            st.error(f"Error generating time series chart: {e}")
-    
+            st.error("Error generating time series chart: " + str(e))
     elif chart_type == "Weekly Ticket Trend (Line)":
         try:
             df["date"] = pd.to_datetime(df["date"])
@@ -529,7 +520,7 @@ def dashboard():
             fig = px.line(weekly, x="date", y="tickets", title="Weekly Ticket Trend", template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
-            st.error(f"Error generating weekly trend chart: {e}")
+            st.error("Error generating weekly trend chart: " + str(e))
     
     st.markdown("### Business Insights")
     completion_rate = (return_tickets / total_tickets * 100) if total_tickets else 0
@@ -550,28 +541,21 @@ def dashboard():
     
     st.info("Review these interactive charts and insights for a complete view of your ticket operations and earnings trends.")
 
+if menu == "Dashboard":
+    dashboard()
+
 # -----------------------------------------------------------
 # Page: Settings
 # -----------------------------------------------------------
 def settings_page():
     st.header("Application Settings")
     st.markdown("Adjust the global settings for your ticket management app below.")
-    
     ticket_price = st.number_input("Fixed Ticket Price", min_value=0.0, value=5.5, step=0.5)
     st.session_state.ticket_price = ticket_price
     st.success("Settings updated!")
     st.markdown("All new tickets will use the updated ticket price.")
 
-# -----------------------------------------------------------
-# Routing
-# -----------------------------------------------------------
-if menu == "Add Intake Tickets":
-    add_intake_tickets()
-elif menu == "Manage Tickets":
-    manage_tickets()
-elif menu == "Dashboard":
-    dashboard()
-elif menu == "Settings":
+if menu == "Settings":
     settings_page()
 
 # -----------------------------------------------------------
