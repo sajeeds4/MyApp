@@ -274,7 +274,7 @@ elif menu == "Manage Tickets":
         status_tabs = st.tabs(["Intake", "Done", "Returned", "All"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
-            # Modified to include tickets with status "Open" or "Intake"
+            # Modified to include tickets with status "Intake" or "Open"
             df_intake = pd.read_sql("SELECT * FROM tickets WHERE status IN ('Intake', 'Open')", conn)
             st.dataframe(df_intake)
         with status_tabs[1]:
@@ -417,17 +417,18 @@ elif menu == "Dashboard":
         if "num_sub_tickets" not in df.columns:
             df["num_sub_tickets"] = 1
 
+        # Calculate metrics by summing sub-ticket counts
+        total_tickets = df["num_sub_tickets"].sum()
+        unresolved_tickets = df[df["status"].isin(["Intake", "Done"])]["num_sub_tickets"].sum()
+        resolved_tickets = df[df["status"] == "Returned"]["num_sub_tickets"].sum()
+        
         # Calculate separate earnings
         intake_df = df[df["type"] == "Intake"]
         return_df = df[df["type"] == "Return"]
         estimated_earning = (intake_df["pay"] * intake_df["num_sub_tickets"]).sum()
         actual_earning = (return_df["pay"] * return_df["num_sub_tickets"]).sum()
         
-        total_tickets = df.shape[0]
-        unresolved_tickets = df[df["status"].isin(["Intake", "Done"])].shape[0]
-        resolved_tickets = df[df["status"] == "Returned"].shape[0]
-        
-        # Display KPI Cards
+        # Display KPI Cards using summed values
         kpi_cols = st.columns(5)
         kpi_cols[0].metric("Total Tickets", total_tickets)
         kpi_cols[1].metric("Returned Tickets", resolved_tickets)
