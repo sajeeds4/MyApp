@@ -16,7 +16,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS to enhance the look (light mode)
 st.markdown(
     """
     <style>
@@ -128,7 +127,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     batch_name TEXT,
     ticket_number TEXT UNIQUE,
     num_sub_tickets INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'Open',
+    status TEXT DEFAULT 'Intake',
     type TEXT,
     pay REAL DEFAULT 5.5,
     comments TEXT DEFAULT '',
@@ -150,7 +149,7 @@ if "ticket_school" not in column_names:
     conn.commit()
 
 # -----------------------------------------------------------
-# Sidebar Navigation (with interactive animations)
+# Sidebar Navigation
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
 menu = st.sidebar.radio("Go to", 
@@ -170,7 +169,7 @@ def add_tickets(ticket_category):
             - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
             """
         )
-        # Optional user-provided inputs for Batch Name, Ticket Day, Ticket School
+        # Optional inputs
         user_batch = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
         ticket_day = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
         ticket_school = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
@@ -182,7 +181,7 @@ def add_tickets(ticket_category):
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         
-        # If batch name not provided, auto-generate one
+        # Auto-generate batch name if not provided
         if user_batch.strip() == "":
             cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
             batch_count = cursor.fetchone()[0] + 1
@@ -190,11 +189,8 @@ def add_tickets(ticket_category):
         else:
             batch_name = user_batch.strip()
         
-        # Determine the default status based on ticket category
-        if ticket_category == "Intake":
-            status_value = "Intake"
-        else:
-            status_value = "Returned"
+        # Set status based on category
+        status_value = "Intake" if ticket_category == "Intake" else "Return"
         
         if ticket_entry_type == "General Ticket":
             ticket_input = st.text_area("Enter Ticket Numbers", 
@@ -262,42 +258,33 @@ elif menu == "Add Return Tickets":
     add_tickets("Return")
 
 # -----------------------------------------------------------
-# Page: Manage Tickets (Advanced Filtering, Sorting, Pagination, Editing)
+# Page: Manage Tickets
 # -----------------------------------------------------------
 elif menu == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
         
-        # -----------------------------------------------------------
-        # New: Header Tabs for Different Statuses
-        # -----------------------------------------------------------
-        status_tabs = st.tabs(["Intake", "Done", "Returned", "All"])
+        # Header Tabs for statuses (only Intake and Return)
+        status_tabs = st.tabs(["Intake", "Return", "All"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
-            # Modified to include tickets with status "Intake" or "Open"
-            df_intake = pd.read_sql("SELECT * FROM tickets WHERE status IN ('Intake', 'Open')", conn)
+            df_intake = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status) = 'intake'", conn)
             st.dataframe(df_intake)
         with status_tabs[1]:
-            st.subheader("Done Tickets")
-            df_done = pd.read_sql("SELECT * FROM tickets WHERE status = 'Done'", conn)
-            st.dataframe(df_done)
+            st.subheader("Return Tickets")
+            df_return = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status) = 'return'", conn)
+            st.dataframe(df_return)
         with status_tabs[2]:
-            st.subheader("Returned Tickets")
-            df_returned = pd.read_sql("SELECT * FROM tickets WHERE status = 'Returned'", conn)
-            st.dataframe(df_returned)
-        with status_tabs[3]:
             st.subheader("All Tickets")
             df_all = pd.read_sql("SELECT * FROM tickets", conn)
             st.dataframe(df_all)
         
         st.markdown("Use the filters below to locate and manage your tickets:")
-        
         col1, col2, col3, col4 = st.columns(4)
         start_date = col1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
         end_date = col2.date_input("End Date", datetime.date.today())
-        status_filter = col3.selectbox("Status", ["All", "Intake", "Done", "Returned"])
+        status_filter = col3.selectbox("Status", ["All", "Intake", "Return"])
         type_filter = col4.selectbox("Ticket Type", ["All", "Intake", "Return"])
-        
         search_term = st.text_input("Search", help="Search by ticket number or batch name")
         
         query = "SELECT * FROM tickets WHERE date BETWEEN ? AND ?"
@@ -311,13 +298,11 @@ elif menu == "Manage Tickets":
         if search_term:
             query += " AND (ticket_number LIKE ? OR batch_name LIKE ?)"
             params.extend([f"%{search_term}%", f"%{search_term}%"])
-        
         order_by = st.selectbox("Sort By", ["date", "ticket_number", "status", "type"], index=0)
         query += f" ORDER BY {order_by} DESC"
         
         df_filtered = pd.read_sql(query, conn, params=params)
         
-        # Pagination Controls
         page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
         page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
         total_tickets = df_filtered.shape[0]
@@ -328,7 +313,7 @@ elif menu == "Manage Tickets":
         st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
         st.dataframe(paginated_df)
         
-        # Ticket Editing Section
+        # Editing Section
         with st.expander("Edit Ticket Details"):
             ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
             if st.button("Load Ticket"):
@@ -342,15 +327,13 @@ elif menu == "Manage Tickets":
                         st.write("Current Ticket Details:")
                         st.json(ticket_dict)
                         
-                        # Allow updating status with new options: Intake, Done, Returned
-                        status_options = ["Intake", "Done", "Returned"]
+                        status_options = ["Intake", "Return"]
                         try:
                             default_index = status_options.index(ticket_dict["status"])
                         except ValueError:
                             default_index = 0
                         new_status = st.selectbox("Update Status", status_options, index=default_index)
                         new_comments = st.text_area("Comments", value=ticket_dict.get("comments", ""))
-                        
                         if st.button("Update Ticket"):
                             cursor.execute("UPDATE tickets SET status=?, comments=? WHERE ticket_number=?",
                                            (new_status, new_comments, ticket_to_edit))
@@ -361,16 +344,6 @@ elif menu == "Manage Tickets":
                 else:
                     st.error("Please enter a valid ticket number.")
         
-        with st.expander("Resolve a Ticket"):
-            ticket_to_resolve = st.text_input("Ticket Number to Resolve", key="resolve", help="Enter the exact ticket number.")
-            if st.button("Resolve Ticket"):
-                ticket_to_resolve = ticket_to_resolve.strip()
-                if ticket_to_resolve:
-                    cursor.execute("UPDATE tickets SET status='Done' WHERE ticket_number=?", (ticket_to_resolve,))
-                    conn.commit()
-                    st.success(f"Ticket '{ticket_to_resolve}' marked as Done.")
-                else:
-                    st.error("Enter a valid ticket number.")
         with st.expander("Delete a Ticket"):
             ticket_to_delete = st.text_input("Ticket Number to Delete", key="delete", help="Enter the exact ticket number.")
             if st.button("Delete Ticket"):
@@ -382,12 +355,10 @@ elif menu == "Manage Tickets":
                 else:
                     st.error("Enter a valid ticket number.")
         
-        # -----------------------------------------------------------
-        # New: Separate Box for Updating Multiple Ticket Statuses
-        # -----------------------------------------------------------
+        # Bulk Update Section
         with st.expander("Update Multiple Ticket Statuses"):
             update_ticket_numbers = st.text_input("Enter Ticket Numbers to Update (separated by space)", key="update_status_multi")
-            new_status_multi = st.selectbox("New Status", ["Intake", "Done", "Returned"], key="update_status_select_multi")
+            new_status_multi = st.selectbox("New Status", ["Intake", "Return"], key="update_status_select_multi")
             if st.button("Update Status for Multiple Tickets", key="update_status_btn_multi"):
                 update_ticket_numbers = update_ticket_numbers.strip()
                 if update_ticket_numbers:
@@ -406,7 +377,7 @@ elif menu == "Manage Tickets":
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
 # -----------------------------------------------------------
-# Page: Dashboard (Fully Graphical, Interactive Analytics & Business Insights)
+# Page: Dashboard
 # -----------------------------------------------------------
 elif menu == "Dashboard":
     with st.spinner("Loading Dashboard..."):
@@ -417,29 +388,25 @@ elif menu == "Dashboard":
         if "num_sub_tickets" not in df.columns:
             df["num_sub_tickets"] = 1
 
-        # Calculate metrics by summing sub-ticket counts
         total_tickets = df["num_sub_tickets"].sum()
-        unresolved_tickets = df[df["status"].isin(["Intake", "Done"])]["num_sub_tickets"].sum()
-        resolved_tickets = df[df["status"] == "Returned"]["num_sub_tickets"].sum()
+        intake_tickets = df[df["status"] == "Intake"]["num_sub_tickets"].sum()
+        return_tickets = df[df["status"] == "Return"]["num_sub_tickets"].sum()
         
-        # Calculate separate earnings
         intake_df = df[df["type"] == "Intake"]
         return_df = df[df["type"] == "Return"]
         estimated_earning = (intake_df["pay"] * intake_df["num_sub_tickets"]).sum()
         actual_earning = (return_df["pay"] * return_df["num_sub_tickets"]).sum()
         
-        # Display KPI Cards using summed values
         kpi_cols = st.columns(5)
         kpi_cols[0].metric("Total Tickets", total_tickets)
-        kpi_cols[1].metric("Returned Tickets", resolved_tickets)
-        kpi_cols[2].metric("In-Progress (Intake/Done)", unresolved_tickets)
+        kpi_cols[1].metric("Return Tickets", return_tickets)
+        kpi_cols[2].metric("Intake Tickets", intake_tickets)
         kpi_cols[3].metric("Estimated Earnings (Intake)", f"${estimated_earning:.2f}")
         kpi_cols[4].metric("Actual Earnings (Return)", f"${actual_earning:.2f}")
         
         st.markdown("### Ticket Data Overview")
         st.dataframe(df.style.format({"pay": "${:,.2f}"}))
         
-        # Dropdown to select chart type
         chart_type = st.selectbox("Select Chart Type", 
                                   ["Ticket Count by Status (Bar)", "Ticket Count by Category (Bar)",
                                    "Ticket Status Distribution (Pie)", "Tickets Over Time (Line)", "Weekly Ticket Trend (Line)"])
@@ -480,14 +447,12 @@ elif menu == "Dashboard":
             except Exception as e:
                 st.error("Error generating weekly trend chart: " + str(e))
         
-        # Business Insights Section
         st.markdown("### Business Insights")
-        completion_rate = (resolved_tickets / total_tickets * 100) if total_tickets else 0
+        completion_rate = (return_tickets / total_tickets * 100) if total_tickets else 0
         st.markdown(f"**Overall Ticket Completion Rate:** {completion_rate:.1f}%")
         top_batch = df['batch_name'].value_counts().idxmax() if total_tickets > 0 else "N/A"
         st.markdown(f"**Top Performing Batch:** {top_batch}")
         
-        # Export Options
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Tickets as CSV", data=csv, file_name="tickets.csv", mime="text/csv")
         
@@ -499,7 +464,7 @@ elif menu == "Dashboard":
         st.info("Review these interactive charts and insights for a complete view of your ticket operations and earnings trends.")
 
 # -----------------------------------------------------------
-# Page: Settings (Configurable Settings)
+# Page: Settings
 # -----------------------------------------------------------
 elif menu == "Settings":
     with st.spinner("Loading Settings..."):
