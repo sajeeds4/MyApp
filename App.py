@@ -133,7 +133,7 @@ if "ticket_school" not in cols:
     conn.commit()
 
 # -----------------------------------------------------------
-# Function: Add Tickets Page (Required Batch Name & Ticket School)
+# Function: Add Tickets Page (for Intake or Return)
 # -----------------------------------------------------------
 def add_tickets_page(ticket_category):
     st.subheader(f"Add {ticket_category} Tickets")
@@ -171,8 +171,9 @@ def add_tickets_page(ticket_category):
                     if tn:
                         try:
                             cursor.execute(
-                                """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                """INSERT INTO tickets 
+                                (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                                 (current_date, current_time, batch_name, tn, 1, ticket_category, st.session_state.ticket_price, 
                                  ticket_day.strip() if ticket_day.strip() != "" else None, 
                                  ticket_school.strip())
@@ -194,8 +195,9 @@ def add_tickets_page(ticket_category):
             if large_ticket:
                 try:
                     cursor.execute(
-                        """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        """INSERT INTO tickets 
+                        (date, time, batch_name, ticket_number, num_sub_tickets, type, pay, ticket_day, ticket_school)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (current_date, current_time, batch_name, large_ticket, sub_ticket_count, ticket_category, st.session_state.ticket_price,
                          ticket_day.strip() if ticket_day.strip() != "" else None,
                          ticket_school.strip())
@@ -209,21 +211,21 @@ def add_tickets_page(ticket_category):
                 st.error("Please enter a valid ticket number.")
 
 # -----------------------------------------------------------
-# Function: Manage Tickets Page (Placeholder Implementation)
+# Function: Manage Tickets Page (Placeholder)
 # -----------------------------------------------------------
 def manage_tickets_page():
     st.subheader("Manage Tickets")
     st.markdown("Use the filters below to locate and manage your tickets:")
-    # (Replace the placeholder below with your full Manage Tickets code.)
+    # Placeholder – replace with your full Manage Tickets implementation
     st.write("Manage Tickets functionality goes here.")
 
 # -----------------------------------------------------------
-# Function: Dashboard Page (Placeholder Implementation)
+# Function: Dashboard Page (Placeholder)
 # -----------------------------------------------------------
 def dashboard_page():
     st.subheader("Dashboard Analytics")
     st.markdown("Interactive charts and business insights will be displayed here.")
-    # (Replace the placeholder below with your full Dashboard code.)
+    # Placeholder – replace with your full Dashboard implementation
     st.write("Dashboard functionality goes here.")
 
 # -----------------------------------------------------------
@@ -240,7 +242,6 @@ def settings_page():
 # -----------------------------------------------------------
 main_tabs = st.tabs(["Add Tickets", "Manage Tickets", "Dashboard", "Settings"])
 
-# In "Add Tickets", use sub-tabs for Intake and Return
 with main_tabs[0]:
     add_tabs = st.tabs(["Add Intake Tickets", "Add Return Tickets"])
     with add_tabs[0]:
