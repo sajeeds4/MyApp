@@ -274,7 +274,8 @@ elif menu == "Manage Tickets":
         status_tabs = st.tabs(["Intake", "Done", "Returned", "All"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
-            df_intake = pd.read_sql("SELECT * FROM tickets WHERE status = 'Intake'", conn)
+            # Modified to include tickets with status "Open" or "Intake"
+            df_intake = pd.read_sql("SELECT * FROM tickets WHERE status IN ('Intake', 'Open')", conn)
             st.dataframe(df_intake)
         with status_tabs[1]:
             st.subheader("Done Tickets")
