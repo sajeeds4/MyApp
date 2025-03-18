@@ -5,6 +5,7 @@ import datetime
 import plotly.express as px
 from io import BytesIO
 import requests
+import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
 
 # -----------------------------------------------------------
@@ -137,7 +138,6 @@ CREATE TABLE IF NOT EXISTS tickets (
 ''')
 conn.commit()
 
-# Ensure schema compatibility for new optional columns
 cursor.execute("PRAGMA table_info(tickets)")
 columns_info = cursor.fetchall()
 column_names = [col[1] for col in columns_info]
@@ -152,6 +152,7 @@ if "ticket_school" not in column_names:
 # Sidebar Navigation
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
+# Two pages for adding tickets: one for Intake and one for managing tickets.
 menu = st.sidebar.radio("Go to", 
                         ["Add Intake Tickets", "Add Return Tickets", "Manage Tickets", "Dashboard", "Settings"],
                         index=0)
@@ -169,7 +170,6 @@ def add_tickets_page(ticket_category):
             - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
             """
         )
-        # Optional additional fields
         user_batch = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
         ticket_day = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
         ticket_school = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
@@ -181,7 +181,6 @@ def add_tickets_page(ticket_category):
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         
-        # Auto-generate batch name if not provided
         if user_batch.strip() == "":
             cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
             batch_count = cursor.fetchone()[0] + 1
@@ -189,8 +188,9 @@ def add_tickets_page(ticket_category):
         else:
             batch_name = user_batch.strip()
         
-        # Set status and type based on page (ticket_category is either "Intake" or "Return")
-        status_value = ticket_category  # New tickets will be added with this status
+        # New tickets added on the Intake page get status "Intake" while
+        # those added on the Return page get status "Return".
+        status_value = ticket_category  
         type_value = ticket_category
         
         if ticket_entry_type == "General Ticket":
@@ -265,7 +265,7 @@ elif menu == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
         
-        # Header Tabs for statuses: Intake, Return, All
+        # Header Tabs for statuses
         status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
@@ -303,16 +303,18 @@ elif menu == "Manage Tickets":
         query += f" ORDER BY {order_by} DESC"
         
         df_filtered = pd.read_sql(query, conn, params=params)
+        
         page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
         page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
         total_tickets = df_filtered.shape[0]
         start_index = (page_number - 1) * page_size
         end_index = start_index + page_size
         paginated_df = df_filtered.iloc[start_index:end_index]
+        
         st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
         st.dataframe(paginated_df)
         
-        # Editing Section
+        # Ticket Editing Section
         with st.expander("Edit Ticket Details"):
             ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
             if st.button("Load Ticket"):
@@ -325,7 +327,6 @@ elif menu == "Manage Tickets":
                         ticket_dict = dict(zip(cols, ticket_data))
                         st.write("Current Ticket Details:")
                         st.json(ticket_dict)
-                        # Only two status options allowed
                         status_options = ["Intake", "Return"]
                         try:
                             default_index = status_options.index(ticket_dict["status"])
@@ -373,6 +374,45 @@ elif menu == "Manage Tickets":
                 else:
                     st.error("Please enter at least one ticket number.")
         
+        # -----------------------------------------------------------
+        # New: Copy Tickets Option
+        # -----------------------------------------------------------
+        st.markdown("### Copy Tickets Data")
+        # Option to copy filtered tickets
+        if st.button("Copy Filtered Tickets to Clipboard"):
+            copy_text = df_filtered.to_csv(index=False)
+            html_code = f"""
+            <textarea id="copyText" style="opacity:0;">{copy_text}</textarea>
+            <script>
+            function copyToClipboard() {{
+              var copyText = document.getElementById("copyText");
+              copyText.select();
+              copyText.setSelectionRange(0, 99999);
+              document.execCommand("copy");
+            }}
+            copyToClipboard();
+            </script>
+            """
+            components.html(html_code, height=0)
+            st.success("Filtered tickets copied to clipboard!")
+        
+        if st.button("Copy All Tickets to Clipboard"):
+            copy_text_all = pd.read_sql("SELECT * FROM tickets", conn).to_csv(index=False)
+            html_code_all = f"""
+            <textarea id="copyTextAll" style="opacity:0;">{copy_text_all}</textarea>
+            <script>
+            function copyToClipboardAll() {{
+              var copyText = document.getElementById("copyTextAll");
+              copyText.select();
+              copyText.setSelectionRange(0, 99999);
+              document.execCommand("copy");
+            }}
+            copyToClipboardAll();
+            </script>
+            """
+            components.html(html_code_all, height=0)
+            st.success("All tickets copied to clipboard!")
+        
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
 # -----------------------------------------------------------
@@ -387,7 +427,6 @@ elif menu == "Dashboard":
         if "num_sub_tickets" not in df.columns:
             df["num_sub_tickets"] = 1
 
-        # Sum sub-ticket counts so that each sub-ticket is counted
         total_tickets = df["num_sub_tickets"].sum()
         intake_tickets = df[df["status"] == "Intake"]["num_sub_tickets"].sum()
         return_tickets = df[df["status"] == "Return"]["num_sub_tickets"].sum()
