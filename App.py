@@ -118,7 +118,7 @@ conn = get_db_connection()
 cursor = conn.cursor()
 
 # -----------------------------------------------------------
-# Create Tickets Table with additional columns: comments, ticket_day, ticket_school
+# Create Tickets Table with additional columns
 # -----------------------------------------------------------
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
@@ -152,13 +152,13 @@ if "ticket_school" not in column_names:
 # Sidebar Navigation
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
-# Two pages for adding tickets: one for Intake and one for managing tickets.
+# Two pages for adding tickets: one for Intake (new tickets) and one for Return (solved tickets)
 menu = st.sidebar.radio("Go to", 
                         ["Add Intake Tickets", "Add Return Tickets", "Manage Tickets", "Dashboard", "Settings"],
                         index=0)
 
 # -----------------------------------------------------------
-# Function: Add Tickets (for bulk adding)
+# Function: Add Tickets Page (bulk adding)
 # -----------------------------------------------------------
 def add_tickets_page(ticket_category):
     with st.spinner("Loading Add Tickets page..."):
@@ -188,8 +188,7 @@ def add_tickets_page(ticket_category):
         else:
             batch_name = user_batch.strip()
         
-        # New tickets added on the Intake page get status "Intake" while
-        # those added on the Return page get status "Return".
+        # For this page, new tickets get the status and type equal to ticket_category ("Intake" or "Return")
         status_value = ticket_category  
         type_value = ticket_category
         
@@ -265,7 +264,7 @@ elif menu == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
         
-        # Header Tabs for statuses
+        # Header Tabs for statuses: Intake, Return, All
         status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
@@ -303,18 +302,16 @@ elif menu == "Manage Tickets":
         query += f" ORDER BY {order_by} DESC"
         
         df_filtered = pd.read_sql(query, conn, params=params)
-        
         page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
         page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
         total_tickets = df_filtered.shape[0]
         start_index = (page_number - 1) * page_size
         end_index = start_index + page_size
         paginated_df = df_filtered.iloc[start_index:end_index]
-        
         st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
         st.dataframe(paginated_df)
         
-        # Ticket Editing Section
+        # Editing Section
         with st.expander("Edit Ticket Details"):
             ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
             if st.button("Load Ticket"):
@@ -375,43 +372,40 @@ elif menu == "Manage Tickets":
                     st.error("Please enter at least one ticket number.")
         
         # -----------------------------------------------------------
-        # New: Copy Tickets Option
+        # New: Option to update all filtered tickets to "Return"
         # -----------------------------------------------------------
-        st.markdown("### Copy Tickets Data")
-        # Option to copy filtered tickets
-        if st.button("Copy Filtered Tickets to Clipboard"):
-            copy_text = df_filtered.to_csv(index=False)
-            html_code = f"""
-            <textarea id="copyText" style="opacity:0;">{copy_text}</textarea>
-            <script>
-            function copyToClipboard() {{
-              var copyText = document.getElementById("copyText");
-              copyText.select();
-              copyText.setSelectionRange(0, 99999);
-              document.execCommand("copy");
-            }}
-            copyToClipboard();
-            </script>
-            """
-            components.html(html_code, height=0)
-            st.success("Filtered tickets copied to clipboard!")
+        with st.expander("Update All Filtered Tickets to Return"):
+            if st.button("Update All Filtered Tickets to Return"):
+                if not df_filtered.empty:
+                    ticket_numbers = df_filtered["ticket_number"].tolist()
+                    count = 0
+                    for tn in ticket_numbers:
+                        cursor.execute("UPDATE tickets SET status='Return' WHERE ticket_number=?", (tn,))
+                        count += 1
+                    conn.commit()
+                    st.success(f"Updated {count} tickets to 'Return'.")
+                else:
+                    st.error("No tickets found in current filter.")
         
-        if st.button("Copy All Tickets to Clipboard"):
-            copy_text_all = pd.read_sql("SELECT * FROM tickets", conn).to_csv(index=False)
-            html_code_all = f"""
-            <textarea id="copyTextAll" style="opacity:0;">{copy_text_all}</textarea>
-            <script>
-            function copyToClipboardAll() {{
-              var copyText = document.getElementById("copyTextAll");
-              copyText.select();
-              copyText.setSelectionRange(0, 99999);
-              document.execCommand("copy");
-            }}
-            copyToClipboardAll();
-            </script>
-            """
-            components.html(html_code_all, height=0)
-            st.success("All tickets copied to clipboard!")
+        # -----------------------------------------------------------
+        # New: SQL Query Option Box
+        # -----------------------------------------------------------
+        with st.expander("Execute Custom SQL Query"):
+            sql_query = st.text_area("Enter SQL Query")
+            if st.button("Execute Query"):
+                try:
+                    cursor.execute(sql_query)
+                    # If SELECT query, fetch and display results
+                    if sql_query.strip().lower().startswith("select"):
+                        result = cursor.fetchall()
+                        cols = [col[0] for col in cursor.description]
+                        df_result = pd.DataFrame(result, columns=cols)
+                        st.dataframe(df_result)
+                    else:
+                        conn.commit()
+                        st.success("Query executed successfully.")
+                except Exception as e:
+                    st.error("Error executing query: " + str(e))
         
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
