@@ -360,19 +360,26 @@ elif menu == "Manage Tickets":
                     st.error("Enter a valid ticket number.")
         
         # -----------------------------------------------------------
-        # New: Separate Box for Updating Ticket Status
+        # New: Separate Box for Updating Multiple Ticket Statuses
         # -----------------------------------------------------------
-        with st.expander("Update Ticket Status"):
-            update_ticket_number = st.text_input("Enter Ticket Number to Update", key="update_status")
-            new_status = st.selectbox("New Status", ["Intake", "Done", "Returned"], key="update_status_select")
-            if st.button("Update Status", key="update_status_btn"):
-                update_ticket_number = update_ticket_number.strip()
-                if update_ticket_number:
-                    cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status, update_ticket_number))
+        with st.expander("Update Multiple Ticket Statuses"):
+            update_ticket_numbers = st.text_input("Enter Ticket Numbers to Update (separated by space)", key="update_status_multi")
+            new_status_multi = st.selectbox("New Status", ["Intake", "Done", "Returned"], key="update_status_select_multi")
+            if st.button("Update Status for Multiple Tickets", key="update_status_btn_multi"):
+                update_ticket_numbers = update_ticket_numbers.strip()
+                if update_ticket_numbers:
+                    tickets_list = update_ticket_numbers.split()
+                    success_count = 0
+                    for tn in tickets_list:
+                        tn = tn.strip()
+                        if tn:
+                            cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status_multi, tn))
+                            # Optionally, you could check if any row was updated for each ticket.
+                            success_count += 1
                     conn.commit()
-                    st.success(f"Ticket '{update_ticket_number}' status updated to '{new_status}'.")
+                    st.success(f"Updated status for {success_count} tickets to '{new_status_multi}'.")
                 else:
-                    st.error("Please enter a valid ticket number.")
+                    st.error("Please enter at least one ticket number.")
         
         st.info("Use the above filters and actions to efficiently manage your tickets.")
 
