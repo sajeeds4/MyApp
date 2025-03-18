@@ -69,7 +69,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Top Banner
+# Top Banner (Logo and Tagline)
 # -----------------------------------------------------------
 st.markdown(
     """
@@ -96,7 +96,7 @@ if lottie_nav:
     st_lottie(lottie_nav, height=150, key="nav")
 
 # -----------------------------------------------------------
-# Database Connection (NO CACHING to ensure fresh data)
+# Database Connection (No Caching to ensure fresh data)
 # -----------------------------------------------------------
 def get_db_connection():
     conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
@@ -142,14 +142,14 @@ if "ticket_school" not in column_names:
 # -----------------------------------------------------------
 st.sidebar.title("Navigation")
 menu = st.sidebar.radio("Go to", 
-                        ["Add Intake Tickets", "Add Return Tickets", "Manage Tickets", "Dashboard", "Settings"],
+                        ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],
                         index=0)
 
 # -----------------------------------------------------------
-# Function: Add Tickets (bulk)
+# Function: Add Intake Tickets (bulk)
 # -----------------------------------------------------------
-def add_tickets_page(ticket_category):
-    st.header(f"Add {ticket_category} Tickets")
+def add_intake_tickets():
+    st.header("Add Intake Tickets")
     st.markdown(
         """
         **Instructions:**
@@ -174,8 +174,8 @@ def add_tickets_page(ticket_category):
     else:
         batch_name = user_batch.strip()
     
-    status_value = ticket_category
-    type_value = ticket_category
+    status_value = "Intake"
+    type_value = "Intake"
     
     if ticket_entry_type == "General Ticket":
         ticket_input = st.text_area("Enter Ticket Numbers", 
@@ -203,7 +203,7 @@ def add_tickets_page(ticket_category):
                             st.error(f"Ticket '{tn}' already exists.")
                 conn.commit()
                 if success_count:
-                    st.success(f"Successfully added {success_count} {ticket_category} tickets.")
+                    st.success(f"Successfully added {success_count} Intake tickets.")
                     st.balloons()
             else:
                 st.error("Please enter some ticket numbers.")
@@ -223,7 +223,7 @@ def add_tickets_page(ticket_category):
                          ticket_school.strip() if ticket_school.strip() else None)
                     )
                     conn.commit()
-                    st.success(f"Successfully added large ticket '{large_ticket}' with {sub_ticket_count} sub-tickets as {ticket_category}.")
+                    st.success(f"Successfully added large ticket '{large_ticket}' with {sub_ticket_count} sub-tickets as Intake.")
                     st.balloons()
                 except sqlite3.IntegrityError:
                     st.error("Ticket number already exists.")
@@ -231,17 +231,18 @@ def add_tickets_page(ticket_category):
                 st.error("Please enter a valid ticket number.")
 
 # -----------------------------------------------------------
-# Pages
+# Page: Add Intake Tickets
 # -----------------------------------------------------------
 if menu == "Add Intake Tickets":
-    add_tickets_page("Intake")
+    add_intake_tickets()
 
-elif menu == "Add Return Tickets":
-    add_tickets_page("Return")
-
+# -----------------------------------------------------------
+# Page: Manage Tickets
+# -----------------------------------------------------------
 elif menu == "Manage Tickets":
     st.header("Manage Tickets")
-    # Tabs
+    
+    # Header Tabs: Intake Tickets, Return Tickets, All Tickets
     status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
     with status_tabs[0]:
         st.subheader("Intake Tickets")
@@ -289,7 +290,7 @@ elif menu == "Manage Tickets":
     st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
     st.dataframe(paginated_df)
     
-    # Edit Ticket
+    # Editing Ticket
     with st.expander("Edit Ticket Details"):
         ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
         if st.button("Load Ticket"):
@@ -417,12 +418,14 @@ elif menu == "Manage Tickets":
             except Exception as e:
                 st.error("Error executing query: " + str(e))
 
+# -----------------------------------------------------------
+# Page: Dashboard
+# -----------------------------------------------------------
 elif menu == "Dashboard":
     st.header("Dashboard Analytics")
-    # Option to filter by batch on the Dashboard
     df = pd.read_sql("SELECT * FROM tickets", conn)
     
-    # If you want a batch filter in the Dashboard
+    # Optional batch filter
     all_batches = ["All"] + sorted(set(df["batch_name"].dropna().tolist()))
     selected_batch = st.selectbox("Select Batch to View", all_batches)
     if selected_batch != "All":
@@ -442,12 +445,12 @@ elif menu == "Dashboard":
     estimated_earning = (intake_df["pay"] * intake_df["num_sub_tickets"]).sum()
     actual_earning = (return_df["pay"] * return_df["num_sub_tickets"]).sum()
     
-    kpi_cols = st.columns(5)
-    kpi_cols[0].metric("Total Tickets", total_tickets)
-    kpi_cols[1].metric("Return Tickets", return_tickets)
-    kpi_cols[2].metric("Intake Tickets", intake_tickets)
-    kpi_cols[3].metric("Estimated Earnings (Intake)", f"${estimated_earning:.2f}")
-    kpi_cols[4].metric("Actual Earnings (Return)", f"${actual_earning:.2f}")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Total Tickets", total_tickets)
+    col2.metric("Return Tickets", return_tickets)
+    col3.metric("Intake Tickets", intake_tickets)
+    col4.metric("Estimated Earnings (Intake)", f"${estimated_earning:.2f}")
+    col5.metric("Actual Earnings (Return)", f"${actual_earning:.2f}")
     
     st.markdown("### Ticket Data Overview")
     st.dataframe(df.style.format({"pay": "${:,.2f}"}))
@@ -511,6 +514,9 @@ elif menu == "Dashboard":
     
     st.info("Review these interactive charts and insights for a complete view of your ticket operations and earnings trends.")
 
+# -----------------------------------------------------------
+# Page: Settings
+# -----------------------------------------------------------
 elif menu == "Settings":
     st.header("Application Settings")
     st.markdown("Adjust the global settings for your ticket management app below.")
