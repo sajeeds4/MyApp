@@ -157,9 +157,9 @@ menu = st.sidebar.radio("Go to",
                         index=0)
 
 # -----------------------------------------------------------
-# Function: Add Tickets (for Intake or Return)
+# Function: Add Tickets (for bulk adding)
 # -----------------------------------------------------------
-def add_tickets(ticket_category):
+def add_tickets_page(ticket_category):
     with st.spinner("Loading Add Tickets page..."):
         st.header(f"Add {ticket_category} Tickets")
         st.markdown(
@@ -169,7 +169,7 @@ def add_tickets(ticket_category):
             - **Large Ticket:** Enter one ticket number and specify the number of sub-tickets.
             """
         )
-        # Optional inputs
+        # Optional additional fields
         user_batch = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
         ticket_day = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
         ticket_school = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
@@ -189,8 +189,9 @@ def add_tickets(ticket_category):
         else:
             batch_name = user_batch.strip()
         
-        # Set status based on category
-        status_value = "Intake" if ticket_category == "Intake" else "Return"
+        # Set status and type based on page (ticket_category is either "Intake" or "Return")
+        status_value = ticket_category  # New tickets will be added with this status
+        type_value = ticket_category
         
         if ticket_entry_type == "General Ticket":
             ticket_input = st.text_area("Enter Ticket Numbers", 
@@ -209,7 +210,7 @@ def add_tickets(ticket_category):
                                     """INSERT INTO tickets 
                                     (date, time, batch_name, ticket_number, num_sub_tickets, status, type, pay, ticket_day, ticket_school)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                    (current_date, current_time, batch_name, tn, 1, status_value, ticket_category, st.session_state.ticket_price, 
+                                    (current_date, current_time, batch_name, tn, 1, status_value, type_value, st.session_state.ticket_price, 
                                      ticket_day.strip() if ticket_day.strip() != "" else None, 
                                      ticket_school.strip() if ticket_school.strip() != "" else None)
                                 )
@@ -218,7 +219,7 @@ def add_tickets(ticket_category):
                                 st.error(f"Ticket '{tn}' already exists.")
                     conn.commit()
                     if success_count:
-                        st.success(f"Successfully added {success_count} tickets for {ticket_category}.")
+                        st.success(f"Successfully added {success_count} {ticket_category} tickets.")
                         st.balloons()
                 else:
                     st.error("Please enter some ticket numbers.")
@@ -233,12 +234,12 @@ def add_tickets(ticket_category):
                             """INSERT INTO tickets 
                             (date, time, batch_name, ticket_number, num_sub_tickets, status, type, pay, ticket_day, ticket_school)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (current_date, current_time, batch_name, large_ticket, sub_ticket_count, status_value, ticket_category, st.session_state.ticket_price,
+                            (current_date, current_time, batch_name, large_ticket, sub_ticket_count, status_value, type_value, st.session_state.ticket_price,
                              ticket_day.strip() if ticket_day.strip() != "" else None,
                              ticket_school.strip() if ticket_school.strip() != "" else None)
                         )
                         conn.commit()
-                        st.success(f"Successfully added large ticket '{large_ticket}' with {sub_ticket_count} sub-tickets for {ticket_category}.")
+                        st.success(f"Successfully added large ticket '{large_ticket}' with {sub_ticket_count} sub-tickets as {ticket_category}.")
                         st.balloons()
                     except sqlite3.IntegrityError:
                         st.error("Ticket number already exists.")
@@ -249,13 +250,13 @@ def add_tickets(ticket_category):
 # Page: Add Intake Tickets
 # -----------------------------------------------------------
 if menu == "Add Intake Tickets":
-    add_tickets("Intake")
+    add_tickets_page("Intake")
 
 # -----------------------------------------------------------
 # Page: Add Return Tickets
 # -----------------------------------------------------------
 elif menu == "Add Return Tickets":
-    add_tickets("Return")
+    add_tickets_page("Return")
 
 # -----------------------------------------------------------
 # Page: Manage Tickets
@@ -264,8 +265,8 @@ elif menu == "Manage Tickets":
     with st.spinner("Loading Manage Tickets page..."):
         st.header("Manage Tickets")
         
-        # Header Tabs for statuses (only Intake and Return)
-        status_tabs = st.tabs(["Intake", "Return", "All"])
+        # Header Tabs for statuses: Intake, Return, All
+        status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
         with status_tabs[0]:
             st.subheader("Intake Tickets")
             df_intake = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status) = 'intake'", conn)
@@ -302,14 +303,12 @@ elif menu == "Manage Tickets":
         query += f" ORDER BY {order_by} DESC"
         
         df_filtered = pd.read_sql(query, conn, params=params)
-        
         page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
         page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
         total_tickets = df_filtered.shape[0]
         start_index = (page_number - 1) * page_size
         end_index = start_index + page_size
         paginated_df = df_filtered.iloc[start_index:end_index]
-        
         st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
         st.dataframe(paginated_df)
         
@@ -326,7 +325,7 @@ elif menu == "Manage Tickets":
                         ticket_dict = dict(zip(cols, ticket_data))
                         st.write("Current Ticket Details:")
                         st.json(ticket_dict)
-                        
+                        # Only two status options allowed
                         status_options = ["Intake", "Return"]
                         try:
                             default_index = status_options.index(ticket_dict["status"])
@@ -388,6 +387,7 @@ elif menu == "Dashboard":
         if "num_sub_tickets" not in df.columns:
             df["num_sub_tickets"] = 1
 
+        # Sum sub-ticket counts so that each sub-ticket is counted
         total_tickets = df["num_sub_tickets"].sum()
         intake_tickets = df[df["status"] == "Intake"]["num_sub_tickets"].sum()
         return_tickets = df[df["status"] == "Return"]["num_sub_tickets"].sum()
