@@ -174,6 +174,7 @@ def add_intake_tickets():
     else:
         batch_name = user_batch.strip()
     
+    # Always create tickets as status/type = "Intake"
     status_value = "Intake"
     type_value = "Intake"
     
@@ -242,7 +243,7 @@ if menu == "Add Intake Tickets":
 elif menu == "Manage Tickets":
     st.header("Manage Tickets")
     
-    # Header Tabs: Intake Tickets, Return Tickets, All Tickets
+    # Tabs for viewing "Intake Tickets," "Return Tickets," or "All Tickets"
     status_tabs = st.tabs(["Intake Tickets", "Return Tickets", "All Tickets"])
     with status_tabs[0]:
         st.subheader("Intake Tickets")
@@ -290,7 +291,7 @@ elif menu == "Manage Tickets":
     st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
     st.dataframe(paginated_df)
     
-    # Editing Ticket
+    # Edit Ticket
     with st.expander("Edit Ticket Details"):
         ticket_to_edit = st.text_input("Enter Ticket Number to Edit", key="edit_ticket")
         if st.button("Load Ticket"):
@@ -425,7 +426,7 @@ elif menu == "Dashboard":
     st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
     
-    # Optional batch filter
+    # Optional batch filter in the Dashboard
     all_batches = ["All"] + sorted(set(df["batch_name"].dropna().tolist()))
     selected_batch = st.selectbox("Select Batch to View", all_batches)
     if selected_batch != "All":
