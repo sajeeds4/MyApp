@@ -13,10 +13,13 @@ from streamlit_lottie import st_lottie
 # Session State Initialization
 # ----------------------------
 st.session_state.setdefault("ticket_price", 5.5)
-st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)"])
+st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)",
+                                                 "Ticket Status Distribution (Pie)",
+                                                 "Tickets Over Time (Line)",
+                                                 "Weekly Ticket Trend (Line)"])
 
 # ----------------------------
-# Page Configuration & Custom CSS
+# Page Configuration & Custom CSS (Modern, Responsive, 3D Buttons)
 # ----------------------------
 st.set_page_config(
     page_title="Ticket Management Dashboard",
@@ -122,7 +125,7 @@ st.markdown(
         padding: 10px;
         margin-bottom: 5px;
         background-color: #4CAF50;
-        color: white;
+        color: #fff;
         border-radius: 5px;
         text-align: center;
     }
@@ -199,29 +202,32 @@ if "ticket_school" not in cols_names:
     conn.commit()
 
 # ----------------------------
-# Custom Sidebar Navigation Menu using HTML Links
+# Custom Sidebar Navigation Menu using Query Parameters
 # ----------------------------
-# Use query parameters to drive navigation.
-params = st.experimental_get_query_params()
+# Replace st.experimental_get_query_params with st.query_params
+params = st.query_params()
 current_page = params.get("page", ["add"])[0]
 
-st.sidebar.markdown('<div class="custom-menu">'
-                    '<a href="?page=add">Add Tickets</a>'
-                    '<a href="?page=manage">Manage Tickets</a>'
-                    '<a href="?page=dashboard">Dashboard</a>'
-                    '<a href="?page=income">Income</a>'
-                    '<a href="?page=history">History</a>'
-                    '<a href="?page=settings">Settings</a>'
-                    '</div>', unsafe_allow_html=True)
+st.sidebar.markdown(
+    """
+    <div class="custom-menu">
+      <a href="?page=add">Add Tickets</a>
+      <a href="?page=manage">Manage Tickets</a>
+      <a href="?page=dashboard">Dashboard</a>
+      <a href="?page=income">Income</a>
+      <a href="?page=history">History</a>
+      <a href="?page=settings">Settings</a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # ----------------------------
-# Page Functions
-# ----------------------------
-
 # Page: Add Tickets (All new tickets are "Intake")
+# ----------------------------
 def add_tickets_page():
     st.header("Add Tickets")
-    st.markdown("Work with laptop repair tickets. For each ticket, you earn $5.5. For large tickets (e.g. a batch of 12 devices), the system will count it as multiple devices.")
+    st.markdown("Enter new tickets. For each ticket, you earn $5.5. Large tickets count for multiple devices.")
     
     raw_batch       = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
     raw_ticket_day  = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
@@ -246,7 +252,7 @@ def add_tickets_page():
     
     if ticket_type == "Single Ticket":
         ticket_input = st.text_area("Enter Ticket Numbers", height=150,
-                                    help="Enter one or more ticket numbers separated by spaces (each representing one laptop)")
+                                    help="Enter one or more ticket numbers separated by spaces (each represents one laptop)")
         if st.button("Add Tickets"):
             ticket_input = str(ticket_input or "").strip()
             if ticket_input:
@@ -277,7 +283,6 @@ def add_tickets_page():
     else:
         raw_large_ticket = st.text_input("Enter Large Ticket Number", help="This represents a batch of devices (e.g. 12 devices)")
         large_ticket = str(raw_large_ticket or "").strip()
-        # For large tickets, assume each counts as 12 devices.
         sub_ticket_count = st.number_input("Number of Devices in Ticket", min_value=1, value=12, step=1)
         if st.button("Add Large Ticket"):
             if large_ticket:
@@ -299,7 +304,9 @@ def add_tickets_page():
             else:
                 st.error("Please enter a valid ticket number.")
 
+# ----------------------------
 # Page: Manage Tickets
+# ----------------------------
 def manage_tickets_page():
     st.header("Manage Tickets")
     
@@ -318,11 +325,11 @@ def manage_tickets_page():
         st.dataframe(df_all)
     
     with st.expander("Show Filters"):
-        c1, c2, c3, c4 = st.columns(4)
-        start_date = c1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
-        end_date = c2.date_input("End Date", datetime.date.today())
-        status_filter = c3.selectbox("Status", ["All", "Intake", "Return"])
-        search_term = c4.text_input("Search", help="Search by ticket number or batch name")
+        col1, col2, col3, col4 = st.columns(4)
+        start_date = col1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
+        end_date   = col2.date_input("End Date", datetime.date.today())
+        status_filter = col3.selectbox("Status", ["All", "Intake", "Return"])
+        search_term = col4.text_input("Search", help="Search by ticket number or batch name")
         order_by = st.selectbox("Sort By", ["date", "ticket_number", "status"], index=0)
     
     query = "SELECT * FROM tickets WHERE date BETWEEN ? AND ?"
@@ -464,40 +471,109 @@ def manage_tickets_page():
             except Exception as e:
                 st.error(f"Error executing query: {e}")
 
-if menu == "Manage Tickets":
+if current_page == "manage":
     manage_tickets_page()
 
 # ============================================================
-# Page: Dashboard (Simple Sine Wave Graph as Daily Income Trend)
+# Page: Dashboard
 # ============================================================
 def dashboard_page():
-    st.header("Dashboard")
-    
-    # Generate a sine wave as a placeholder for daily income trend
-    x = np.linspace(0, 4 * np.pi, 100)
-    y = np.sin(x) * 100  # scale the sine wave to represent earnings
-    df_sine = pd.DataFrame({"Time": x, "Earnings": y})
-    
-    st.markdown("### Daily Income Trend (Sine Wave Simulation)")
-    fig_sine = px.line(df_sine, x="Time", y="Earnings", title="Daily Income Trend", template="plotly_white")
-    st.plotly_chart(fig_sine, use_container_width=True)
-    
-    # Display simplified earnings metrics based on database
+    st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
+    
+    all_batches = ["All"] + sorted(set(df["batch_name"].dropna().tolist()))
+    selected_batch = st.selectbox("Select Batch to View", all_batches)
+    if selected_batch != "All":
+        df = df[df["batch_name"] == selected_batch]
+    
     if "pay" not in df.columns:
         df["pay"] = st.session_state.ticket_price
     if "num_sub_tickets" not in df.columns:
         df["num_sub_tickets"] = 1
-    
+
     estimated_earning = (df[df["status"]=="Intake"]["pay"] * df[df["status"]=="Intake"]["num_sub_tickets"]).sum()
     actual_earning = (df[df["status"]=="Return"]["pay"] * df[df["status"]=="Return"]["num_sub_tickets"]).sum()
-    total_earnings = estimated_earning + actual_earning
+    total_estimated = estimated_earning + actual_earning
     
-    st.metric("Total Estimated Earnings Till Now", f"${total_earnings:.2f}")
+    st.metric("Total Estimated Earnings Till Now", f"${total_estimated:.2f}")
     st.metric("Estimated Earnings (Open)", f"${estimated_earning:.2f}")
     st.metric("Actual Earnings (Returned)", f"${actual_earning:.2f}")
+    
+    try:
+        df["date"] = pd.to_datetime(df["date"])
+        earnings_over_time = df.groupby("date").apply(lambda x: (x["pay"] * x["num_sub_tickets"]).sum()).reset_index(name="earnings")
+        fig = px.line(earnings_over_time, x="date", y="earnings", title="Earnings Over Time", template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error generating earnings chart: {e}")
+    
+    colA, colB = st.columns([1, 1])
+    with colA:
+        if st.button("Show Return Tickets"):
+            with st.expander("List of Returned Tickets"):
+                st.dataframe(df[df["status"]=="Return"])
+    with colB:
+        if st.button("Show Intake Tickets"):
+            with st.expander("List of Intake Tickets"):
+                st.dataframe(df[df["status"]=="Intake"])
+    
+    st.markdown("### Ticket Data Overview")
+    st.dataframe(df.style.format({"pay": "${:,.2f}"}))
+    
+    chart_type = st.selectbox("Select Chart Type", 
+                              ["Ticket Count by Status (Bar)",
+                               "Ticket Status Distribution (Pie)",
+                               "Tickets Over Time (Line)",
+                               "Weekly Ticket Trend (Line)"])
+    
+    if chart_type == "Ticket Count by Status (Bar)":
+        status_counts = df["status"].value_counts().reset_index()
+        status_counts.columns = ["status", "count"]
+        fig = px.bar(status_counts, x="status", y="count", color="status", title="Ticket Count by Status", template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
+    elif chart_type == "Ticket Status Distribution (Pie)":
+        status_counts = df["status"].value_counts().reset_index()
+        status_counts.columns = ["status", "count"]
+        fig = px.pie(status_counts, names="status", values="count", title="Ticket Status Distribution", template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
+    elif chart_type == "Tickets Over Time (Line)":
+        try:
+            tickets_over_time = df.groupby("date").size().reset_index(name="count")
+            fig = px.line(tickets_over_time, x="date", y="count", title="Tickets Over Time", template="plotly_white")
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error generating time series chart: {e}")
+    elif chart_type == "Weekly Ticket Trend (Line)":
+        try:
+            weekly = df.groupby(pd.Grouper(key="date", freq="W")).size().reset_index(name="tickets")
+            fig = px.line(weekly, x="date", y="tickets", title="Weekly Ticket Trend", template="plotly_white")
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error generating weekly trend chart: {e}")
+    
+    st.markdown("### Business Insights")
+    total_tickets = df["num_sub_tickets"].sum()
+    return_count = df[df["status"]=="Return"]["num_sub_tickets"].sum()
+    completion_rate = (return_count / total_tickets * 100) if total_tickets else 0
+    st.markdown(f"**Overall Ticket Completion Rate:** {completion_rate:.1f}%")
+    
+    if not df.empty:
+        top_batch = df['batch_name'].value_counts().idxmax()
+    else:
+        top_batch = "N/A"
+    st.markdown(f"**Top Performing Batch:** {top_batch}")
+    
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("Download Tickets as CSV", data=csv, file_name="tickets.csv", mime="text/csv")
+    
+    towrite = BytesIO()
+    df.to_excel(towrite, index=False, sheet_name="Tickets")
+    towrite.seek(0)
+    st.download_button("Download Tickets as Excel", data=towrite, file_name="tickets.xlsx", mime="application/vnd.ms-excel")
+    
+    st.info("Review these interactive charts and insights for a complete view of your ticket operations and earnings trends.")
 
-if menu == "Dashboard":
+if current_page == "dashboard":
     dashboard_page()
 
 # ============================================================
@@ -505,7 +581,7 @@ if menu == "Dashboard":
 # ============================================================
 def income_page():
     st.header("Income Overview")
-    st.markdown("This section shows how much you've earned so far and the estimated value of tickets still open.")
+    st.markdown("This section shows your earnings so far and the estimated value of open tickets.")
     
     df = pd.read_sql("SELECT * FROM tickets", conn)
     if "pay" not in df.columns:
@@ -513,7 +589,6 @@ def income_page():
     if "num_sub_tickets" not in df.columns:
         df["num_sub_tickets"] = 1
     
-    # Calculate earnings from returned tickets (actual) and from open (intake) tickets (estimated)
     actual_income = (df[df["status"]=="Return"]["pay"] * df[df["status"]=="Return"]["num_sub_tickets"]).sum()
     estimated_income = (df[df["status"]=="Intake"]["pay"] * df[df["status"]=="Intake"]["num_sub_tickets"]).sum()
     total_income = actual_income + estimated_income
@@ -522,7 +597,6 @@ def income_page():
     st.metric("Actual Income (Returned)", f"${actual_income:.2f}")
     st.metric("Potential Income (Open)", f"${estimated_income:.2f}")
     
-    # Daily income trend (aggregated by date from returned tickets)
     try:
         df["date"] = pd.to_datetime(df["date"])
         df_return = df[df["status"]=="Return"]
@@ -532,14 +606,14 @@ def income_page():
     except Exception as e:
         st.error(f"Error generating daily income trend: {e}")
 
-if menu == "Income":
+if current_page == "income":
     income_page()
 
 # ============================================================
-# Page: History (Earnings and Batch Details with Return by Batch)
+# Page: History (Earnings and Batch Details with Batch-level Return)
 # ============================================================
 def history_page():
-    st.header("History")
+    st.header("Earnings History")
     st.markdown("Below is the history of earnings and ticket counts grouped by batch.")
     
     df_history = pd.read_sql("SELECT batch_name, COUNT(*) as ticket_count, SUM(pay * num_sub_tickets) as earnings FROM tickets GROUP BY batch_name ORDER BY batch_name", conn)
@@ -565,7 +639,7 @@ def history_page():
                 df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
                 st.dataframe(df_batch)
 
-if menu == "History":
+if current_page == "history":
     history_page()
 
 # ============================================================
@@ -589,7 +663,7 @@ def settings_page():
     st.success("Settings updated!")
     st.markdown("All new tickets will use the updated ticket price.")
 
-if menu == "Settings":
+if current_page == "settings":
     settings_page()
 
 # ============================================================
