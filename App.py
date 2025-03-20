@@ -40,7 +40,7 @@ st.markdown(
         padding: 2rem;
         background-color: #ffffff;
         border-radius: 10px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
         max-width: 1200px;
         margin: auto;
     }
@@ -124,7 +124,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Optional: Lottie Animation for Sidebar
+# Optional: Lottie Animation in Sidebar
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -188,7 +188,7 @@ menu = st.sidebar.radio(
 )
 
 # ============================================================
-# Page: Add Intake Tickets (All new tickets are "Intake")
+# Page: Add Intake Tickets
 # ============================================================
 def add_intake_tickets():
     st.header("Add Intake Tickets")
@@ -203,7 +203,7 @@ def add_intake_tickets():
     raw_ticket_day  = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
     raw_ticket_schl = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
     
-    # Convert inputs to strings safely
+    # Safely convert inputs to strings
     user_batch = str(raw_batch or "").strip()
     ticket_day_val = str(raw_ticket_day or "").strip() or None
     ticket_school_val = str(raw_ticket_schl or "").strip() or None
@@ -223,7 +223,7 @@ def add_intake_tickets():
     
     if ticket_entry_type == "General Ticket":
         ticket_input = st.text_area("Enter Ticket Numbers", height=150,
-                                    help="Separate ticket numbers with whitespace (e.g. 12345 12346 12347)")
+                                    help="Separate ticket numbers with whitespace, e.g. 12345 12346 12347")
         if st.button("Add Tickets"):
             ticket_input = str(ticket_input or "").strip()
             if ticket_input:
@@ -340,11 +340,11 @@ def manage_tickets():
     
     df_filtered = pd.read_sql(query, conn, params=params)
     
-    page_size   = st.number_input("Page Size", min_value=5, value=10, step=5)
+    page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
     page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
     total_tickets = df_filtered.shape[0]
     start_index = (page_number - 1) * page_size
-    end_index   = start_index + page_size
+    end_index = start_index + page_size
     paginated_df = df_filtered.iloc[start_index:end_index]
     
     st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
@@ -475,9 +475,9 @@ def manage_tickets():
 if menu == "Manage Tickets":
     manage_tickets()
 
-# -----------------------------------------------------------
+# ============================================================
 # Page: Dashboard
-# -----------------------------------------------------------
+# ============================================================
 def dashboard():
     st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
@@ -492,16 +492,14 @@ def dashboard():
     if "num_sub_tickets" not in df.columns:
         df["num_sub_tickets"] = 1
 
-    # Calculate earnings
     estimated_earning = (df[df["status"]=="Intake"]["pay"] * df[df["status"]=="Intake"]["num_sub_tickets"]).sum()
     actual_earning = (df[df["status"]=="Return"]["pay"] * df[df["status"]=="Return"]["num_sub_tickets"]).sum()
-    total_estimated = estimated_earning + actual_earning  # combined earnings
+    total_estimated = estimated_earning + actual_earning
     
     st.metric("Total Estimated Earnings Till Now", f"${total_estimated:.2f}")
     st.metric("Estimated Earnings (Open)", f"${estimated_earning:.2f}")
     st.metric("Actual Earnings (Returned)", f"${actual_earning:.2f}")
     
-    # Interactive Earnings Over Time Chart
     try:
         df["date"] = pd.to_datetime(df["date"])
         earnings_over_time = df.groupby("date").apply(lambda x: (x["pay"] * x["num_sub_tickets"]).sum()).reset_index(name="earnings")
@@ -510,7 +508,6 @@ def dashboard():
     except Exception as e:
         st.error(f"Error generating earnings chart: {e}")
     
-    # 3D Buttons to reveal ticket lists
     colA, colB = st.columns([1, 1])
     with colA:
         if st.button("Show Return Tickets"):
@@ -581,7 +578,7 @@ if menu == "Dashboard":
     dashboard()
 
 # ============================================================
-# Page: History (Earnings and Batch Details)
+# Page: History (Earnings History and Batch Details)
 # ============================================================
 def history_page():
     st.header("Earnings History")
@@ -600,6 +597,10 @@ def history_page():
     batches = df_history["batch_name"].tolist()
     for batch in batches:
         with st.expander(f"View Tickets for {batch}"):
+            if st.button(f"Return all tickets for {batch}", key=f"return_{batch}"):
+                cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
+                conn.commit()
+                st.success(f"All tickets in batch {batch} marked as Return.")
             df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
             st.dataframe(df_batch)
 
