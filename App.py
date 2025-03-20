@@ -202,9 +202,12 @@ if "ticket_school" not in cols_names:
     conn.commit()
 
 # ----------------------------
-# Custom Sidebar Navigation using Query Parameters
+# Custom Sidebar Navigation using Query Parameters (with fallback)
 # ----------------------------
-params = st.query_params  # Use st.query_params property (without parentheses)
+if hasattr(st, "query_params"):
+    params = st.query_params
+else:
+    params = st.experimental_get_query_params()
 current_page = params.get("page", ["add"])[0]
 
 st.sidebar.markdown(
@@ -302,6 +305,9 @@ def add_tickets_page():
                     st.error("Ticket number already exists.")
             else:
                 st.error("Please enter a valid ticket number.")
+
+if current_page == "add":
+    add_tickets_page()
 
 # ----------------------------
 # Page: Manage Tickets
@@ -506,7 +512,7 @@ def dashboard_page():
     except Exception as e:
         st.error(f"Error generating earnings chart: {e}")
     
-    colA, colB = st.columns([1, 1])
+    colA, colB = st.columns([1,1])
     with colA:
         if st.button("Show Return Tickets"):
             with st.expander("List of Returned Tickets"):
