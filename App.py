@@ -8,14 +8,40 @@ import requests
 import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
 
-# -----------------------------------------------------------
-# Initialize Session State Variables
-# -----------------------------------------------------------
-st.session_state.setdefault("ticket_price", 5.5)
+# ============================================================
+# 1. Basic Authentication (for demonstration only)
+# ============================================================
+def login():
+    st.sidebar.header("Login")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        # Hardcoded credentials for demo; replace with secure auth in production
+        if username == "admin" and password == "password":
+            st.session_state.authenticated = True
+            st.sidebar.success("Logged in!")
+        else:
+            st.sidebar.error("Invalid credentials.")
 
-# -----------------------------------------------------------
-# Page Configuration & Custom CSS (Modern Full-HD Look & 3D Buttons)
-# -----------------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    login()
+    st.stop()  # Halt further execution until logged in
+
+# ============================================================
+# 2. Initialize Session State Variables & Settings
+# ============================================================
+st.session_state.setdefault("ticket_price", 5.5)
+st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)",
+                                                 "Ticket Status Distribution (Pie)",
+                                                 "Tickets Over Time (Line)",
+                                                 "Weekly Ticket Trend (Line)"])
+
+# ============================================================
+# 3. Page Configuration & Custom CSS (Modern Look & 3D Buttons)
+# ============================================================
 st.set_page_config(
     page_title="Ticket Management Dashboard",
     page_icon=":ticket:",
@@ -25,6 +51,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Global styling */
     body {
         background-color: #f5f5f5;
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -36,13 +63,14 @@ st.markdown(
         padding: 2rem;
         background-color: #ffffff;
         border-radius: 10px;
-        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 0 15px rgba(0,0,0,0.1);
         max-width: 1200px;
         margin: auto;
     }
     .sidebar .sidebar-content {
         background-color: #ffffff;
     }
+    /* Header banner */
     .header-banner {
         background-image: url('https://via.placeholder.com/1500x200.png?text=Your+Business+Tagline');
         background-size: cover;
@@ -62,15 +90,18 @@ st.markdown(
         font-size: 1.5rem;
         margin: 0.5rem 0 0;
     }
+    /* Metric cards */
     .stMetric {
         background-color: #ffffff;
         border-radius: 10px;
         box-shadow: 0 0 8px rgba(0,0,0,0.1);
     }
+    /* DataFrame styling */
     .dataframe th {
         background-color: #f0f0f0;
         color: #333;
     }
+    /* Footer styling */
     .footer {
         text-align: center;
         font-size: 0.8rem;
@@ -88,7 +119,7 @@ st.markdown(
         cursor: pointer;
         transition: transform 0.2s, background-color 0.3s ease;
         box-shadow: 0 5px #999;
-        margin: 0.5rem 0.5rem 0 0;
+        margin: 0.5rem;
     }
     div.stButton > button:hover {
         background-color: #45a049;
@@ -120,7 +151,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Optional: Lottie Animation for Navigation (Sidebar)
+# Optional: Lottie Animation for Sidebar
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -133,59 +164,49 @@ if lottie_nav:
     st.sidebar.markdown("<h4 style='text-align: center;'>Navigation Animation</h4>", unsafe_allow_html=True)
     st_lottie(lottie_nav, height=150, key="nav")
 
-# -----------------------------------------------------------
-# Database Connection (No caching -> always fresh data)
-# -----------------------------------------------------------
-def get_db_connection():
-    conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
-    return conn
-
-conn = get_db_connection()
-cursor = conn.cursor()
-
-# -----------------------------------------------------------
-# Create Tickets Table (status: "Intake" or "Return")
-# -----------------------------------------------------------
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS tickets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    time TEXT,
-    batch_name TEXT,
-    ticket_number TEXT UNIQUE,
-    num_sub_tickets INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'Intake',
-    pay REAL DEFAULT 5.5,
-    comments TEXT DEFAULT '',
-    ticket_day TEXT,
-    ticket_school TEXT
-)
-''')
-conn.commit()
-
-cursor.execute("PRAGMA table_info(tickets)")
-columns_info = cursor.fetchall()
-column_names = [col[1] for col in columns_info]
-if "ticket_day" not in column_names:
-    cursor.execute("ALTER TABLE tickets ADD COLUMN ticket_day TEXT")
-    conn.commit()
-if "ticket_school" not in column_names:
-    cursor.execute("ALTER TABLE tickets ADD COLUMN ticket_school TEXT")
+# ============================================================
+# 4. Database Setup and Audit Logging
+# ============================================================
+def create_audit_log():
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_number TEXT,
+        action TEXT,
+        timestamp TEXT
+    )
+    ''')
     conn.commit()
 
-# -----------------------------------------------------------
-# Sidebar Navigation
-# -----------------------------------------------------------
+def log_audit(ticket_number, action):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT INTO audit_log (ticket_number, action, timestamp) VALUES (?, ?, ?)",
+                   (ticket_number, action, timestamp))
+    conn.commit()
+
+create_audit_log()
+
+# ============================================================
+# 5. Real-Time Notification Hook (Dummy Function)
+# ============================================================
+def notify_update(ticket_number, action):
+    # Dummy notification function.
+    # Replace the print statement with a call to your notification system (e.g. Slack webhook)
+    print(f"Notification: Ticket {ticket_number} has been {action}.")
+
+# ============================================================
+# 6. Sidebar Navigation and Page Routing
+# ============================================================
 st.sidebar.title("Navigation")
 menu = st.sidebar.radio(
     "Go to",
-    ["Add Intake Tickets", "Manage Tickets", "Dashboard", "Settings"],
+    ["Add Intake Tickets", "Manage Tickets", "Dashboard", "History", "Settings"],
     index=0
 )
 
-# -----------------------------------------------------------
-# Page: Add Intake Tickets
-# -----------------------------------------------------------
+# ============================================================
+# 7. Page: Add Intake Tickets
+# ============================================================
 def add_intake_tickets():
     st.header("Add Intake Tickets")
     st.markdown(
@@ -199,7 +220,7 @@ def add_intake_tickets():
     raw_ticket_day  = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
     raw_ticket_schl = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
     
-    # Convert inputs to strings safely
+    # Safely convert inputs to strings and strip them
     user_batch = str(raw_batch or "").strip()
     ticket_day_val = str(raw_ticket_day or "").strip() or None
     ticket_school_val = str(raw_ticket_schl or "").strip() or None
@@ -231,11 +252,8 @@ def add_intake_tickets():
                         try:
                             cursor.execute(
                                 """
-                                INSERT INTO tickets (
-                                    date, time, batch_name, ticket_number,
-                                    num_sub_tickets, status, pay,
-                                    ticket_day, ticket_school
-                                )
+                                INSERT INTO tickets (date, time, batch_name, ticket_number,
+                                num_sub_tickets, status, pay, ticket_day, ticket_school)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
@@ -268,11 +286,8 @@ def add_intake_tickets():
                 try:
                     cursor.execute(
                         """
-                        INSERT INTO tickets (
-                            date, time, batch_name, ticket_number,
-                            num_sub_tickets, status, pay,
-                            ticket_day, ticket_school
-                        )
+                        INSERT INTO tickets (date, time, batch_name, ticket_number,
+                        num_sub_tickets, status, pay, ticket_day, ticket_school)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
@@ -298,9 +313,9 @@ def add_intake_tickets():
 if menu == "Add Intake Tickets":
     add_intake_tickets()
 
-# -----------------------------------------------------------
-# Page: Manage Tickets
-# -----------------------------------------------------------
+# ============================================================
+# 8. Page: Manage Tickets
+# ============================================================
 def manage_tickets():
     st.header("Manage Tickets")
     
@@ -375,6 +390,8 @@ def manage_tickets():
                         cursor.execute("UPDATE tickets SET status=?, comments=? WHERE ticket_number=?",
                                        (new_status, new_comments, ticket_to_edit))
                         conn.commit()
+                        log_audit(ticket_to_edit, f"Updated to {new_status}")
+                        notify_update(ticket_to_edit, f"updated to {new_status}")
                         st.success("Ticket updated successfully!")
                 else:
                     st.error("Ticket not found.")
@@ -388,6 +405,8 @@ def manage_tickets():
             if ticket_to_delete:
                 cursor.execute("DELETE FROM tickets WHERE ticket_number=?", (ticket_to_delete,))
                 conn.commit()
+                log_audit(ticket_to_delete, "Deleted")
+                notify_update(ticket_to_delete, "deleted")
                 st.success(f"Ticket '{ticket_to_delete}' deleted.")
             else:
                 st.error("Enter a valid ticket number.")
@@ -404,6 +423,8 @@ def manage_tickets():
                     tn = tn.strip()
                     if tn:
                         cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status_multi, tn))
+                        log_audit(tn, f"Bulk updated to {new_status_multi}")
+                        notify_update(tn, f"bulk updated to {new_status_multi}")
                         success_count += 1
                 conn.commit()
                 st.success(f"Updated {success_count} tickets to '{new_status_multi}'.")
@@ -417,6 +438,8 @@ def manage_tickets():
                 count = 0
                 for tn in ticket_numbers:
                     cursor.execute("UPDATE tickets SET status='Return' WHERE ticket_number=?", (tn,))
+                    log_audit(tn, "Updated to Return")
+                    notify_update(tn, "updated to Return")
                     count += 1
                 conn.commit()
                 st.success(f"Updated {count} tickets to 'Return'.")
@@ -535,12 +558,14 @@ def dashboard():
         fig = px.bar(status_counts, x="status", y="count", color="status", title="Ticket Count by Status",
                      template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
+    
     elif chart_type == "Ticket Status Distribution (Pie)":
         status_counts = df["status"].value_counts().reset_index()
         status_counts.columns = ["status", "count"]
         fig = px.pie(status_counts, names="status", values="count", title="Ticket Status Distribution",
                      template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
+    
     elif chart_type == "Tickets Over Time (Line)":
         try:
             df["date"] = pd.to_datetime(df["date"])
@@ -550,6 +575,7 @@ def dashboard():
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error(f"Error generating time series chart: {e}")
+    
     elif chart_type == "Weekly Ticket Trend (Line)":
         try:
             df["date"] = pd.to_datetime(df["date"])
@@ -583,15 +609,44 @@ if menu == "Dashboard":
     dashboard()
 
 # -----------------------------------------------------------
-# Page: Settings
+# Page: History (Earnings by Batch)
+# -----------------------------------------------------------
+def history_page():
+    st.header("Earnings History")
+    st.markdown("Below is the history of earnings and ticket counts grouped by batch.")
+    
+    df_history = pd.read_sql("SELECT batch_name, COUNT(*) as ticket_count, SUM(pay * num_sub_tickets) as earnings FROM tickets GROUP BY batch_name ORDER BY batch_name", conn)
+    st.dataframe(df_history)
+    
+    fig_history = px.bar(df_history, x="batch_name", y="earnings", title="Earnings by Batch", template="plotly_white")
+    st.plotly_chart(fig_history, use_container_width=True)
+    
+    fig_count = px.bar(df_history, x="batch_name", y="ticket_count", title="Ticket Count by Batch", template="plotly_white")
+    st.plotly_chart(fig_count, use_container_width=True)
+
+if menu == "History":
+    history_page()
+
+# -----------------------------------------------------------
+# Page: Settings (including Dashboard customization)
 # -----------------------------------------------------------
 def settings_page():
     st.header("Application Settings")
     st.markdown("Adjust the global settings for your ticket management app below.")
-    ticket_price = st.number_input("Fixed Ticket Price", min_value=0.0, value=5.5, step=0.5)
+    
+    ticket_price = st.number_input("Fixed Ticket Price", min_value=0.0, value=st.session_state.ticket_price, step=0.5)
     st.session_state.ticket_price = ticket_price
+    
+    dashboard_options = st.multiselect("Select Dashboard Charts to Display", 
+                                       options=["Ticket Count by Status (Bar)",
+                                                "Ticket Status Distribution (Pie)",
+                                                "Tickets Over Time (Line)",
+                                                "Weekly Ticket Trend (Line)"],
+                                       default=st.session_state.dashboard_charts)
+    st.session_state.dashboard_charts = dashboard_options
+    
     st.success("Settings updated!")
-    st.markdown("All new tickets will use the updated ticket price.")
+    st.markdown("All new tickets will use the updated ticket price. Dashboard charts will display as configured.")
 
 if menu == "Settings":
     settings_page()
