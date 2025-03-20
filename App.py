@@ -18,7 +18,7 @@ st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)",
                                                  "Weekly Ticket Trend (Line)"])
 
 # -----------------------------------------------------------
-# Page Configuration & Custom CSS (Modern Look & 3D Buttons)
+# Page Configuration & Custom CSS (Modern & Responsive)
 # -----------------------------------------------------------
 st.set_page_config(
     page_title="Ticket Management Dashboard",
@@ -29,6 +29,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Global Styling */
     body {
         background-color: #f5f5f5;
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -40,13 +41,14 @@ st.markdown(
         padding: 2rem;
         background-color: #ffffff;
         border-radius: 10px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
         max-width: 1200px;
         margin: auto;
     }
     .sidebar .sidebar-content {
         background-color: #ffffff;
     }
+    /* Header Banner */
     .header-banner {
         background-image: url('https://via.placeholder.com/1500x200.png?text=Your+Business+Tagline');
         background-size: cover;
@@ -66,15 +68,18 @@ st.markdown(
         font-size: 1.5rem;
         margin: 0.5rem 0 0;
     }
+    /* Metric Cards */
     .stMetric {
         background-color: #ffffff;
         border-radius: 10px;
         box-shadow: 0 0 8px rgba(0,0,0,0.1);
     }
+    /* DataFrame Styling */
     .dataframe th {
         background-color: #f0f0f0;
         color: #333;
     }
+    /* Footer Styling */
     .footer {
         text-align: center;
         font-size: 0.8rem;
@@ -105,13 +110,30 @@ st.markdown(
     input, textarea, select {
         font-size: 16px !important;
     }
+    /* Mobile Responsive CSS */
+    @media (max-width: 768px) {
+        .reportview-container .main .block-container {
+            padding: 1rem;
+            max-width: 100%;
+        }
+        .header-banner h1 {
+            font-size: 2rem;
+        }
+        .header-banner p {
+            font-size: 1.2rem;
+        }
+        div.stButton > button {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------
-# Top Banner (Logo & Tagline)
+# Top Banner
 # -----------------------------------------------------------
 st.markdown(
     """
@@ -188,7 +210,7 @@ menu = st.sidebar.radio(
 )
 
 # ============================================================
-# Page: Add Intake Tickets (All new tickets are "Intake")
+# Page: Add Intake Tickets
 # ============================================================
 def add_intake_tickets():
     st.header("Add Intake Tickets")
@@ -203,7 +225,7 @@ def add_intake_tickets():
     raw_ticket_day  = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
     raw_ticket_schl = st.text_input("Ticket School", placeholder="Enter ticket school (optional)")
     
-    # Convert inputs to strings safely
+    # Safely convert inputs to strings
     user_batch = str(raw_batch or "").strip()
     ticket_day_val = str(raw_ticket_day or "").strip() or None
     ticket_school_val = str(raw_ticket_schl or "").strip() or None
@@ -223,7 +245,7 @@ def add_intake_tickets():
     
     if ticket_entry_type == "General Ticket":
         ticket_input = st.text_area("Enter Ticket Numbers", height=150,
-                                    help="Separate ticket numbers with whitespace (e.g. 12345 12346 12347)")
+                                    help="Separate ticket numbers with whitespace, e.g. 12345 12346 12347")
         if st.button("Add Tickets"):
             ticket_input = str(ticket_input or "").strip()
             if ticket_input:
@@ -475,9 +497,9 @@ def manage_tickets():
 if menu == "Manage Tickets":
     manage_tickets()
 
-# -----------------------------------------------------------
+# ============================================================
 # Page: Dashboard
-# -----------------------------------------------------------
+# ============================================================
 def dashboard():
     st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
@@ -492,16 +514,14 @@ def dashboard():
     if "num_sub_tickets" not in df.columns:
         df["num_sub_tickets"] = 1
 
-    # Calculate earnings
     estimated_earning = (df[df["status"]=="Intake"]["pay"] * df[df["status"]=="Intake"]["num_sub_tickets"]).sum()
     actual_earning = (df[df["status"]=="Return"]["pay"] * df[df["status"]=="Return"]["num_sub_tickets"]).sum()
-    total_estimated = estimated_earning + actual_earning  # combined earnings
+    total_estimated = estimated_earning + actual_earning
     
     st.metric("Total Estimated Earnings Till Now", f"${total_estimated:.2f}")
     st.metric("Estimated Earnings (Open)", f"${estimated_earning:.2f}")
     st.metric("Actual Earnings (Returned)", f"${actual_earning:.2f}")
     
-    # Interactive Earnings Over Time Chart
     try:
         df["date"] = pd.to_datetime(df["date"])
         earnings_over_time = df.groupby("date").apply(lambda x: (x["pay"] * x["num_sub_tickets"]).sum()).reset_index(name="earnings")
@@ -510,7 +530,6 @@ def dashboard():
     except Exception as e:
         st.error(f"Error generating earnings chart: {e}")
     
-    # 3D Buttons to reveal ticket lists
     colA, colB = st.columns([1, 1])
     with colA:
         if st.button("Show Return Tickets"):
@@ -581,7 +600,7 @@ if menu == "Dashboard":
     dashboard()
 
 # ============================================================
-# Page: History (Earnings and Batch Details)
+# Page: History (Earnings History & Batch Details with Return by Batch)
 # ============================================================
 def history_page():
     st.header("Earnings History")
@@ -600,8 +619,15 @@ def history_page():
     batches = df_history["batch_name"].tolist()
     for batch in batches:
         with st.expander(f"View Tickets for {batch}"):
-            df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
-            st.dataframe(df_batch)
+            colX, colY = st.columns([1,1])
+            with colX:
+                if st.button(f"Return all tickets for {batch}", key=f"return_{batch}"):
+                    cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
+                    conn.commit()
+                    st.success(f"All tickets in batch {batch} marked as Return.")
+            with colY:
+                df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
+                st.dataframe(df_batch)
 
 if menu == "History":
     history_page()
