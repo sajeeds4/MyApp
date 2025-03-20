@@ -10,7 +10,7 @@ import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
 
 # ----------------------------
-# Session State Initialization
+# Initialize Session State Variables
 # ----------------------------
 st.session_state.setdefault("ticket_price", 5.5)
 st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)",
@@ -202,10 +202,9 @@ if "ticket_school" not in cols_names:
     conn.commit()
 
 # ----------------------------
-# Custom Sidebar Navigation Menu using Query Parameters
+# Custom Sidebar Navigation using Query Parameters
 # ----------------------------
-# Replace st.experimental_get_query_params with st.query_params
-params = st.query_params()
+params = st.query_params  # Use st.query_params property (without parentheses)
 current_page = params.get("page", ["add"])[0]
 
 st.sidebar.markdown(
@@ -227,7 +226,7 @@ st.sidebar.markdown(
 # ----------------------------
 def add_tickets_page():
     st.header("Add Tickets")
-    st.markdown("Enter new tickets. For each ticket, you earn $5.5. Large tickets count for multiple devices.")
+    st.markdown("Enter new tickets. For each ticket, you earn $5.5. Large tickets count as multiple devices.")
     
     raw_batch       = st.text_input("Batch Name", placeholder="Enter batch name (optional)")
     raw_ticket_day  = st.text_input("Ticket Day", placeholder="Enter ticket day (optional)")
@@ -325,11 +324,11 @@ def manage_tickets_page():
         st.dataframe(df_all)
     
     with st.expander("Show Filters"):
-        col1, col2, col3, col4 = st.columns(4)
-        start_date = col1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
-        end_date   = col2.date_input("End Date", datetime.date.today())
-        status_filter = col3.selectbox("Status", ["All", "Intake", "Return"])
-        search_term = col4.text_input("Search", help="Search by ticket number or batch name")
+        c1, c2, c3, c4 = st.columns(4)
+        start_date = c1.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
+        end_date = c2.date_input("End Date", datetime.date.today())
+        status_filter = c3.selectbox("Status", ["All", "Intake", "Return"])
+        search_term = c4.text_input("Search", help="Search by ticket number or batch name")
         order_by = st.selectbox("Sort By", ["date", "ticket_number", "status"], index=0)
     
     query = "SELECT * FROM tickets WHERE date BETWEEN ? AND ?"
@@ -474,9 +473,9 @@ def manage_tickets_page():
 if current_page == "manage":
     manage_tickets_page()
 
-# ============================================================
+# ----------------------------
 # Page: Dashboard
-# ============================================================
+# ----------------------------
 def dashboard_page():
     st.header("Dashboard Analytics")
     df = pd.read_sql("SELECT * FROM tickets", conn)
@@ -576,12 +575,12 @@ def dashboard_page():
 if current_page == "dashboard":
     dashboard_page()
 
-# ============================================================
+# ----------------------------
 # Page: Income (Detailed Income Information)
-# ============================================================
+# ----------------------------
 def income_page():
     st.header("Income Overview")
-    st.markdown("This section shows your earnings so far and the estimated value of open tickets.")
+    st.markdown("This section shows how much you've earned so far and the estimated value of open tickets.")
     
     df = pd.read_sql("SELECT * FROM tickets", conn)
     if "pay" not in df.columns:
@@ -609,11 +608,11 @@ def income_page():
 if current_page == "income":
     income_page()
 
-# ============================================================
-# Page: History (Earnings and Batch Details with Batch-level Return)
-# ============================================================
+# ----------------------------
+# Page: History (Earnings History & Batch Details with Batch-level Return)
+# ----------------------------
 def history_page():
-    st.header("Earnings History")
+    st.header("History")
     st.markdown("Below is the history of earnings and ticket counts grouped by batch.")
     
     df_history = pd.read_sql("SELECT batch_name, COUNT(*) as ticket_count, SUM(pay * num_sub_tickets) as earnings FROM tickets GROUP BY batch_name ORDER BY batch_name", conn)
@@ -629,7 +628,7 @@ def history_page():
     batches = df_history["batch_name"].tolist()
     for batch in batches:
         with st.expander(f"View Tickets for {batch}"):
-            colX, colY = st.columns([1, 1])
+            colX, colY = st.columns([1,1])
             with colX:
                 if st.button(f"Return all tickets for {batch}", key=f"return_{batch}"):
                     cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
@@ -642,9 +641,9 @@ def history_page():
 if current_page == "history":
     history_page()
 
-# ============================================================
+# ----------------------------
 # Page: Settings
-# ============================================================
+# ----------------------------
 def settings_page():
     st.header("Settings")
     st.markdown("Adjust the global settings for your ticket management app below.")
@@ -666,9 +665,9 @@ def settings_page():
 if current_page == "settings":
     settings_page()
 
-# ============================================================
+# ----------------------------
 # Footer
-# ============================================================
+# ----------------------------
 st.markdown(
     """
     <div class="footer">
