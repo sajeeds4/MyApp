@@ -118,20 +118,6 @@ st.markdown(
         .header-banner p { font-size: 1.2rem; }
         div.stButton > button { padding: 8px 16px; font-size: 14px; }
     }
-    /* Custom Sidebar Menu */
-    .custom-menu a {
-        display: block;
-        text-decoration: none;
-        padding: 10px;
-        margin-bottom: 5px;
-        background-color: #4CAF50;
-        color: #fff;
-        border-radius: 5px;
-        text-align: center;
-    }
-    .custom-menu a:hover {
-        background-color: #45a049;
-    }
     </style>
     """,
     unsafe_allow_html=True
@@ -202,27 +188,10 @@ if "ticket_school" not in cols_names:
     conn.commit()
 
 # ----------------------------
-# Custom Sidebar Navigation using Query Parameters (with fallback)
+# Sidebar Navigation using Radio Buttons
 # ----------------------------
-if hasattr(st, "query_params"):
-    params = st.query_params
-else:
-    params = st.experimental_get_query_params()
-current_page = params.get("page", ["add"])[0]
-
-st.sidebar.markdown(
-    """
-    <div class="custom-menu">
-      <a href="?page=add">Add Tickets</a>
-      <a href="?page=manage">Manage Tickets</a>
-      <a href="?page=dashboard">Dashboard</a>
-      <a href="?page=income">Income</a>
-      <a href="?page=history">History</a>
-      <a href="?page=settings">Settings</a>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+menu = st.sidebar.radio("Navigation", 
+                          ["Add Tickets", "Manage Tickets", "Dashboard", "Income", "History", "Settings"])
 
 # ----------------------------
 # Page: Add Tickets (All new tickets are "Intake")
@@ -305,9 +274,6 @@ def add_tickets_page():
                     st.error("Ticket number already exists.")
             else:
                 st.error("Please enter a valid ticket number.")
-
-if current_page == "add":
-    add_tickets_page()
 
 # ----------------------------
 # Page: Manage Tickets
@@ -476,7 +442,7 @@ def manage_tickets_page():
             except Exception as e:
                 st.error(f"Error executing query: {e}")
 
-if current_page == "manage":
+if menu == "Manage Tickets":
     manage_tickets_page()
 
 # ----------------------------
@@ -578,7 +544,7 @@ def dashboard_page():
     
     st.info("Review these interactive charts and insights for a complete view of your ticket operations and earnings trends.")
 
-if current_page == "dashboard":
+if menu == "Dashboard":
     dashboard_page()
 
 # ----------------------------
@@ -611,7 +577,7 @@ def income_page():
     except Exception as e:
         st.error(f"Error generating daily income trend: {e}")
 
-if current_page == "income":
+if menu == "Income":
     income_page()
 
 # ----------------------------
@@ -644,7 +610,7 @@ def history_page():
                 df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
                 st.dataframe(df_batch)
 
-if current_page == "history":
+if menu == "History":
     history_page()
 
 # ----------------------------
@@ -668,7 +634,7 @@ def settings_page():
     st.success("Settings updated!")
     st.markdown("All new tickets will use the updated ticket price.")
 
-if current_page == "settings":
+if menu == "Settings":
     settings_page()
 
 # ----------------------------
