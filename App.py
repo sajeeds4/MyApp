@@ -18,7 +18,7 @@ st.session_state.setdefault("dashboard_charts", ["Ticket Count by Status (Bar)",
                                                  "Weekly Ticket Trend (Line)"])
 
 # -----------------------------------------------------------
-# Page Configuration & Custom CSS (Modern & Responsive)
+# Page Configuration & Custom CSS (Modern Look & 3D Buttons)
 # -----------------------------------------------------------
 st.set_page_config(
     page_title="Ticket Management Dashboard",
@@ -29,7 +29,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Global Styling */
     body {
         background-color: #f5f5f5;
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -48,7 +47,6 @@ st.markdown(
     .sidebar .sidebar-content {
         background-color: #ffffff;
     }
-    /* Header Banner */
     .header-banner {
         background-image: url('https://via.placeholder.com/1500x200.png?text=Your+Business+Tagline');
         background-size: cover;
@@ -68,18 +66,15 @@ st.markdown(
         font-size: 1.5rem;
         margin: 0.5rem 0 0;
     }
-    /* Metric Cards */
     .stMetric {
         background-color: #ffffff;
         border-radius: 10px;
         box-shadow: 0 0 8px rgba(0,0,0,0.1);
     }
-    /* DataFrame Styling */
     .dataframe th {
         background-color: #f0f0f0;
         color: #333;
     }
-    /* Footer Styling */
     .footer {
         text-align: center;
         font-size: 0.8rem;
@@ -110,30 +105,13 @@ st.markdown(
     input, textarea, select {
         font-size: 16px !important;
     }
-    /* Mobile Responsive CSS */
-    @media (max-width: 768px) {
-        .reportview-container .main .block-container {
-            padding: 1rem;
-            max-width: 100%;
-        }
-        .header-banner h1 {
-            font-size: 2rem;
-        }
-        .header-banner p {
-            font-size: 1.2rem;
-        }
-        div.stButton > button {
-            padding: 8px 16px;
-            font-size: 14px;
-        }
-    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------
-# Top Banner
+# Top Banner (Logo & Tagline)
 # -----------------------------------------------------------
 st.markdown(
     """
@@ -146,7 +124,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------
-# Optional: Lottie Animation for Sidebar
+# Optional: Lottie Animation in Sidebar
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -362,11 +340,11 @@ def manage_tickets():
     
     df_filtered = pd.read_sql(query, conn, params=params)
     
-    page_size   = st.number_input("Page Size", min_value=5, value=10, step=5)
+    page_size = st.number_input("Page Size", min_value=5, value=10, step=5)
     page_number = st.number_input("Page Number", min_value=1, value=1, step=1)
     total_tickets = df_filtered.shape[0]
     start_index = (page_number - 1) * page_size
-    end_index   = start_index + page_size
+    end_index = start_index + page_size
     paginated_df = df_filtered.iloc[start_index:end_index]
     
     st.write(f"Showing tickets {start_index+1} to {min(end_index, total_tickets)} of {total_tickets}")
@@ -600,7 +578,7 @@ if menu == "Dashboard":
     dashboard()
 
 # ============================================================
-# Page: History (Earnings History & Batch Details with Return by Batch)
+# Page: History (Earnings History and Batch Details)
 # ============================================================
 def history_page():
     st.header("Earnings History")
@@ -619,15 +597,12 @@ def history_page():
     batches = df_history["batch_name"].tolist()
     for batch in batches:
         with st.expander(f"View Tickets for {batch}"):
-            colX, colY = st.columns([1,1])
-            with colX:
-                if st.button(f"Return all tickets for {batch}", key=f"return_{batch}"):
-                    cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
-                    conn.commit()
-                    st.success(f"All tickets in batch {batch} marked as Return.")
-            with colY:
-                df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
-                st.dataframe(df_batch)
+            if st.button(f"Return all tickets for {batch}", key=f"return_{batch}"):
+                cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
+                conn.commit()
+                st.success(f"All tickets in batch {batch} marked as Return.")
+            df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(batch,))
+            st.dataframe(df_batch)
 
 if menu == "History":
     history_page()
