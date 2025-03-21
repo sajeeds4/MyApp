@@ -142,7 +142,7 @@ menu = st.sidebar.radio(
         "Add Tickets",
         "Intake Tickets",
         "Returned Tickets",
-        "Delivered Tickets",  # NEW SEPARATE MENU
+        "Delivered Tickets",
         "Manage Tickets",
         "Income",
         "History",
@@ -238,7 +238,7 @@ def view_returned_tickets():
     st.dataframe(df_return)
 
 # -----------------------------------------------------------
-# Page: Delivered Tickets (View only, NEW)
+# Page: Delivered Tickets (View only)
 # -----------------------------------------------------------
 def view_delivered_tickets():
     st.header("Delivered Tickets")
@@ -350,10 +350,10 @@ def manage_tickets():
             st.warning("No tickets entered for bulk update.")
 
 # -----------------------------------------------------------
-# Page: Income (Day-wise from Return) with date range
+# Page: Income (Day-wise from Delivered) with date range
 # -----------------------------------------------------------
 def income_page():
-    st.header("Day-wise Returned Earnings (Interactive Date Range)")
+    st.header("Day-wise Delivered Earnings (Interactive Date Range)")
 
     start_dt = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     end_dt = st.date_input("End Date", datetime.date.today())
@@ -362,7 +362,7 @@ def income_page():
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
         FROM tickets
-        WHERE status='Return' AND date BETWEEN ? AND ?
+        WHERE status='Delivered' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date DESC
     """
@@ -372,9 +372,9 @@ def income_page():
     if not df.empty:
         st.dataframe(df)
         total_earnings = df["day_earnings"].sum()
-        st.write(f"**Returned Earnings from {start_dt} to {end_dt}:** ${total_earnings:.2f}")
+        st.write(f"**Delivered Earnings from {start_dt} to {end_dt}:** ${total_earnings:.2f}")
     else:
-        st.info("No returned tickets found in this date range.")
+        st.info("No delivered tickets found in this date range.")
 
 # -----------------------------------------------------------
 # Page: History
@@ -443,7 +443,7 @@ elif menu == "Intake Tickets":
     view_intake_tickets()
 elif menu == "Returned Tickets":
     view_returned_tickets()
-elif menu == "Delivered Tickets":   # NEW PAGE
+elif menu == "Delivered Tickets":
     view_delivered_tickets()
 elif menu == "Manage Tickets":
     manage_tickets()
@@ -462,7 +462,7 @@ st.markdown(
     <hr>
     <div style="text-align:center;">
         <p style="font-size:0.8rem; color:#777;">
-            &copy; 2025 Ticket Management App. Minimal version, day-wise income, unmatched logic, separate delivered page.
+            &copy; 2025 Ticket Management App. Minimal version, day-wise delivered income, unmatched logic.
         </p>
     </div>
     """,
