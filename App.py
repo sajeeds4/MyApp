@@ -85,7 +85,7 @@ st.markdown(
     """
     <div class="header-banner">
         <h1>Ticket Management (Minimal + Day-wise Income)</h1>
-        <p>Manage tickets at $5.5 each, day-wise earnings, separate intake/return pages, unmatched logic.</p>
+        <p>Manage tickets at $5.5 each, day-wise earnings, separate pages for Intake/Return/Delivered, unmatched logic.</p>
     </div>
     """,
     unsafe_allow_html=True
@@ -142,6 +142,7 @@ menu = st.sidebar.radio(
         "Add Tickets",
         "Intake Tickets",
         "Returned Tickets",
+        "Delivered Tickets",  # NEW SEPARATE MENU
         "Manage Tickets",
         "Income",
         "History",
@@ -237,6 +238,14 @@ def view_returned_tickets():
     st.dataframe(df_return)
 
 # -----------------------------------------------------------
+# Page: Delivered Tickets (View only, NEW)
+# -----------------------------------------------------------
+def view_delivered_tickets():
+    st.header("Delivered Tickets")
+    df_delivered = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='delivered' ORDER BY date DESC", conn)
+    st.dataframe(df_delivered)
+
+# -----------------------------------------------------------
 # Page: Manage Tickets (Bulk update with unmatched logic)
 # -----------------------------------------------------------
 def manage_tickets():
@@ -247,7 +256,7 @@ def manage_tickets():
     # Single ticket edit
     st.markdown("### Single Ticket Edit")
     single_ticket_edit = st.text_input("Ticket Number to Edit")
-    new_status_single = st.selectbox("New Status", ["Intake", "Return"])
+    new_status_single = st.selectbox("New Status", ["Intake", "Return", "Delivered"])
     if st.button("Update Single Ticket"):
         if single_ticket_edit.strip():
             cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?",
@@ -277,9 +286,10 @@ def manage_tickets():
     # Bulk update
     st.markdown("### Bulk Update Status")
     bulk_tickets = st.text_area("Ticket(s) to Update (space-separated)")
-    new_status_bulk = st.selectbox("Status for Found Tickets", ["Intake", "Return"])
-    unmatched_handling = st.selectbox("If ticket does NOT exist in DB, how to handle?",
-                                      ["Ignore (do nothing)", "Add as Intake", "Add as Return"])
+    bulk_options = ["Intake", "Return", "Delivered"]
+    new_status_bulk = st.selectbox("Status for Found Tickets", bulk_options)
+    unmatched_choices = ["Ignore (do nothing)", "Add as Intake", "Add as Return", "Add as Delivered"]
+    unmatched_handling = st.selectbox("If ticket does NOT exist in DB, how to handle?", unmatched_choices)
 
     if st.button("Bulk Update"):
         if bulk_tickets.strip():
@@ -299,8 +309,13 @@ def manage_tickets():
 
             # Now handle unmatched
             if unmatched and unmatched_handling != "Ignore (do nothing)":
-                # We'll insert them with the chosen status
-                new_status_for_unmatched = "Intake" if unmatched_handling == "Add as Intake" else "Return"
+                if unmatched_handling == "Add as Intake":
+                    new_status_for_unmatched = "Intake"
+                elif unmatched_handling == "Add as Return":
+                    new_status_for_unmatched = "Return"
+                else:
+                    new_status_for_unmatched = "Delivered"
+
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d")
                 current_time = datetime.datetime.now().strftime("%H:%M:%S")
                 unmatched_batch = "Unmatched-Batch"
@@ -385,17 +400,26 @@ def history_page():
     total_tickets = row[0] if row[0] else 0
     st.markdown(f"### Overall Total Tickets: {int(total_tickets)}")
 
-    # 3) Provide batch details and "Return all" button
-    st.markdown("### Batch Details (Return All in Batch)")
+    # 3) Provide batch details, with "Return all" or "Deliver all" buttons
+    st.markdown("### Batch Details (Return All or Deliver All)")
     for _, row_item in df_hist.iterrows():
         batch = row_item["batch_name"]
         if not batch:
             continue
         with st.expander(f"View Tickets for {batch}"):
-            if st.button(f"Return all tickets for '{batch}'", key=f"return_{batch}"):
-                cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
-                conn.commit()
-                st.success(f"All tickets in batch '{batch}' marked as Return.")
+            colA, colB = st.columns([1,1])
+            with colA:
+                if st.button(f"Return all tickets for '{batch}'", key=f"return_{batch}"):
+                    cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
+                    conn.commit()
+                    st.success(f"All tickets in batch '{batch}' marked as Return.")
+            with colB:
+                if st.button(f"Deliver all tickets for '{batch}'", key=f"deliver_{batch}"):
+                    # set all to 'Delivered'
+                    cursor.execute("UPDATE tickets SET status='Delivered' WHERE batch_name=?", (batch,))
+                    conn.commit()
+                    st.success(f"All tickets in batch '{batch}' marked as Delivered.")
+
             df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name=?", conn, params=(batch,))
             st.dataframe(df_batch)
 
@@ -419,6 +443,8 @@ elif menu == "Intake Tickets":
     view_intake_tickets()
 elif menu == "Returned Tickets":
     view_returned_tickets()
+elif menu == "Delivered Tickets":   # NEW PAGE
+    view_delivered_tickets()
 elif menu == "Manage Tickets":
     manage_tickets()
 elif menu == "Income":
@@ -436,7 +462,7 @@ st.markdown(
     <hr>
     <div style="text-align:center;">
         <p style="font-size:0.8rem; color:#777;">
-            &copy; 2025 Ticket Management App. Minimal version, day-wise income, unmatched ticket logic.
+            &copy; 2025 Ticket Management App. Minimal version, day-wise income, unmatched logic, separate delivered page.
         </p>
     </div>
     """,
