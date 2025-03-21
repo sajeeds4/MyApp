@@ -180,8 +180,8 @@ def add_tickets_page():
                     t = t.strip()
                     if t:
                         try:
-                            cursor.execute("""
-                                INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                            cursor.execute("""INSERT INTO tickets
+                                (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
                                 VALUES(?,?,?,?,?,?,?)""",
                                 (
                                     current_date, current_time, batch_name, t, 1,
@@ -198,13 +198,14 @@ def add_tickets_page():
             else:
                 st.warning("Please enter ticket number(s).")
     else:
+        # Large Ticket
         large_ticket = st.text_input("Large Ticket Number")
         sub_count = st.number_input("Number of Sub-Tickets", min_value=1, value=5, step=1)
         if st.button("Add Large Ticket"):
             if large_ticket.strip():
                 try:
-                    cursor.execute("""
-                        INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                    cursor.execute("""INSERT INTO tickets
+                        (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
                         VALUES(?,?,?,?,?,?,?)""",
                         (
                             current_date, current_time, batch_name, large_ticket.strip(),
@@ -324,7 +325,6 @@ def manage_tickets():
                             )
                             added_count += 1
                         except sqlite3.IntegrityError:
-                            # if inserted by concurrency or partial
                             pass
                 conn.commit()
                 st.success(f"Added {added_count} new ticket(s) as '{new_status_for_unmatched}' into batch '{unmatched_batch}'.")
@@ -366,6 +366,8 @@ def income_page():
 # -----------------------------------------------------------
 def history_page():
     st.header("History: Batches, Minimal Display")
+
+    # 1) Show a summary by batch
     df_hist = pd.read_sql("""
         SELECT batch_name,
                COUNT(*) AS ticket_count,
@@ -375,12 +377,18 @@ def history_page():
         GROUP BY batch_name
         ORDER BY batch_name
     """, conn)
-
     st.dataframe(df_hist)
 
+    # 2) Show overall total tickets (sum of sub_tickets)
+    cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets")
+    row = cursor.fetchone()
+    total_tickets = row[0] if row[0] else 0
+    st.markdown(f"### Overall Total Tickets: {int(total_tickets)}")
+
+    # 3) Provide batch details and "Return all" button
     st.markdown("### Batch Details (Return All in Batch)")
-    for _, row in df_hist.iterrows():
-        batch = row["batch_name"]
+    for _, row_item in df_hist.iterrows():
+        batch = row_item["batch_name"]
         if not batch:
             continue
         with st.expander(f"View Tickets for {batch}"):
