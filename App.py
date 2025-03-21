@@ -7,15 +7,15 @@ import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
 
 # -----------------------------------------------------------
-# Initialize Session State
+# Session State
 # -----------------------------------------------------------
 st.session_state.setdefault("ticket_price", 5.5)
 
 # -----------------------------------------------------------
-# Page Configuration & Simple CSS
+# Basic Page Config & CSS
 # -----------------------------------------------------------
 st.set_page_config(
-    page_title="Ticket Management (No Charts + Day-wise Income)",
+    page_title="Ticket Management (No Charts, Day-wise Income)",
     page_icon=":ticket:",
     layout="wide"
 )
@@ -84,15 +84,15 @@ st.markdown(
 st.markdown(
     """
     <div class="header-banner">
-        <h1>Ticket Management (No Charts, Day-wise Income)</h1>
-        <p>Manage your tickets at $5.5 each. Minimal approach, day-wise earnings only.</p>
+        <h1>Ticket Management (Minimal + Day-wise Income)</h1>
+        <p>Manage tickets at $5.5 each, day-wise earnings, separate Intake/Return pages.</p>
     </div>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------
-# Optional Lottie Animation in Sidebar
+# Optional Lottie
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -106,7 +106,7 @@ if lottie_animation:
     st_lottie(lottie_animation, height=150, key="lottie")
 
 # -----------------------------------------------------------
-# Database (SQLite) Connection
+# DB Connection (SQLite)
 # -----------------------------------------------------------
 def get_db_connection():
     conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
@@ -115,7 +115,7 @@ def get_db_connection():
 conn = get_db_connection()
 cursor = conn.cursor()
 
-# Create table if not exists
+# Ensure table
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,11 +134,19 @@ CREATE TABLE IF NOT EXISTS tickets (
 conn.commit()
 
 # -----------------------------------------------------------
-# Sidebar Navigation (No "Dashboard" with charts, but we keep "History" + new "Income" page)
+# Sidebar Navigation
 # -----------------------------------------------------------
 menu = st.sidebar.radio(
     "Navigation",
-    ["Add Tickets", "Manage Tickets", "Income", "History", "Settings"],
+    [
+        "Add Tickets",
+        "Intake Tickets",
+        "Returned Tickets",
+        "Manage Tickets",
+        "Income",
+        "History",
+        "Settings"
+    ],
     index=0
 )
 
@@ -146,148 +154,179 @@ menu = st.sidebar.radio(
 # Page: Add Tickets
 # -----------------------------------------------------------
 def add_tickets_page():
-    st.header("Add Intake Tickets")
-    st.markdown("All new tickets are added with status='Intake'. Large tickets can represent multiple sub-tickets.")
+    st.header("Add Tickets (All new as 'Intake')")
+    st.markdown("Ticket Price: $%.2f per sub-ticket" % st.session_state.ticket_price)
 
     raw_batch = st.text_input("Batch Name (optional)")
-    ticket_input_type = st.radio("Ticket Input Type", ["Single/Multiple (General)", "Large Ticket"], index=0)
+    ticket_input_type = st.radio("Ticket Input Type", ["Multiple/General", "Large Ticket"], index=0)
 
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.datetime.now().strftime("%H:%M:%S")
 
+    # Determine batch name
     if not raw_batch.strip():
-        # auto-generate a batch
         cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
         batch_count = cursor.fetchone()[0] + 1
         batch_name = f"Batch-{batch_count}"
     else:
         batch_name = raw_batch.strip()
 
-    if ticket_input_type == "Single/Multiple (General)":
-        tickets_input = st.text_area("Enter Ticket(s) (space-separated)")
+    if ticket_input_type == "Multiple/General":
+        tickets_text = st.text_area("Enter one or more tickets (space-separated)")
         if st.button("Add Ticket(s)"):
-            if tickets_input.strip():
-                tickets_list = tickets_input.strip().split()
+            if tickets_text.strip():
+                tickets_list = tickets_text.strip().split()
                 success_count = 0
                 for t in tickets_list:
                     t = t.strip()
                     if t:
                         try:
-                            cursor.execute(
-                                """INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                                   VALUES(?,?,?,?,?,?,?)""",
+                            cursor.execute("""
+                                INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                                VALUES(?,?,?,?,?,?,?)""",
                                 (
-                                    current_date, current_time, batch_name, t, 1, "Intake",
-                                    st.session_state.ticket_price
+                                    current_date, current_time, batch_name, t, 1,
+                                    "Intake", st.session_state.ticket_price
                                 )
                             )
                             success_count += 1
                         except sqlite3.IntegrityError:
-                            st.error(f"Ticket '{t}' already exists.")
+                            st.error(f"Ticket '{t}' already exists in DB.")
                 conn.commit()
                 if success_count:
                     st.success(f"Added {success_count} ticket(s) to batch '{batch_name}'.")
                     st.balloons()
             else:
-                st.error("Please enter ticket number(s).")
+                st.warning("Please enter ticket number(s).")
     else:
         # Large Ticket
-        large_t = st.text_input("Large Ticket Number")
+        large_ticket = st.text_input("Large Ticket Number")
         sub_count = st.number_input("Number of Sub-Tickets", min_value=1, value=5, step=1)
         if st.button("Add Large Ticket"):
-            if large_t.strip():
+            if large_ticket.strip():
                 try:
-                    cursor.execute(
-                        """INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                           VALUES(?,?,?,?,?,?,?)""",
+                    cursor.execute("""
+                        INSERT INTO tickets(date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                        VALUES(?,?,?,?,?,?,?)""",
                         (
-                            current_date, current_time, batch_name, large_t.strip(), sub_count, "Intake",
-                            st.session_state.ticket_price
+                            current_date, current_time, batch_name, large_ticket.strip(), sub_count,
+                            "Intake", st.session_state.ticket_price
                         )
                     )
                     conn.commit()
-                    st.success(f"Added large ticket '{large_t}' with {sub_count} sub-tickets to batch '{batch_name}'.")
+                    st.success(f"Added large ticket '{large_ticket}' with {sub_count} sub-tickets to batch '{batch_name}'.")
                     st.balloons()
                 except sqlite3.IntegrityError:
-                    st.error("That large ticket number already exists.")
+                    st.error(f"Ticket '{large_ticket.strip()}' already exists.")
             else:
-                st.error("Please enter a valid ticket number.")
+                st.warning("Please enter a valid ticket number.")
+
+# -----------------------------------------------------------
+# Page: Intake Tickets (View only)
+# -----------------------------------------------------------
+def view_intake_tickets():
+    st.header("Intake Tickets")
+    df_intake = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='intake' ORDER BY date DESC", conn)
+    st.dataframe(df_intake)
+
+# -----------------------------------------------------------
+# Page: Returned Tickets (View only)
+# -----------------------------------------------------------
+def view_returned_tickets():
+    st.header("Returned Tickets")
+    df_return = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='return' ORDER BY date DESC", conn)
+    st.dataframe(df_return)
 
 # -----------------------------------------------------------
 # Page: Manage Tickets
 # -----------------------------------------------------------
-def manage_tickets_page():
-    st.header("Manage Tickets")
-    # Show all tickets
+def manage_tickets():
+    st.header("Manage Tickets (Bulk Updates, Single Edit, etc.)")
     df_all = pd.read_sql("SELECT * FROM tickets ORDER BY date DESC", conn)
     st.dataframe(df_all)
 
-    st.markdown("#### Update Ticket Status (Single)")
-    ticket_edit = st.text_input("Ticket Number to Edit")
-    new_status = st.selectbox("Set New Status", ["Intake", "Return"])
-    if st.button("Update Ticket"):
-        if ticket_edit.strip():
-            cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status, ticket_edit.strip()))
+    st.markdown("### Single Ticket Edit (Status)")
+    single_ticket_edit = st.text_input("Ticket Number to Edit")
+    new_status_single = st.selectbox("Set New Status", ["Intake", "Return"])
+    if st.button("Update Single Ticket"):
+        if single_ticket_edit.strip():
+            cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?",
+                           (new_status_single, single_ticket_edit.strip()))
+            if cursor.rowcount > 0:
+                st.success(f"Ticket '{single_ticket_edit.strip()}' updated to {new_status_single}.")
+            else:
+                st.error(f"Ticket '{single_ticket_edit.strip()}' not found in DB.")
             conn.commit()
-            st.success(f"Ticket '{ticket_edit.strip()}' updated to {new_status}")
         else:
-            st.warning("Enter a valid ticket number.")
+            st.warning("Please enter a valid ticket number to update.")
 
-    st.markdown("#### Delete a Ticket (Single)")
-    ticket_delete = st.text_input("Ticket Number to Delete")
+    st.markdown("### Single Ticket Deletion")
+    single_ticket_delete = st.text_input("Ticket Number to Delete")
     if st.button("Delete Ticket"):
-        if ticket_delete.strip():
-            cursor.execute("DELETE FROM tickets WHERE ticket_number=?", (ticket_delete.strip(),))
+        if single_ticket_delete.strip():
+            cursor.execute("DELETE FROM tickets WHERE ticket_number=?", (single_ticket_delete.strip(),))
+            if cursor.rowcount > 0:
+                st.success(f"Deleted ticket '{single_ticket_delete.strip()}'.")
+            else:
+                st.error(f"Ticket '{single_ticket_delete.strip()}' not found in DB.")
             conn.commit()
-            st.success(f"Deleted ticket '{ticket_delete.strip()}'")
         else:
-            st.warning("Enter a valid ticket number.")
+            st.warning("Enter a ticket number to delete.")
 
-    st.markdown("#### Bulk Update Status")
-    tickets_bulk = st.text_area("Tickets to Update (space-separated)")
-    bulk_status = st.selectbox("Status to Set in Bulk", ["Intake", "Return"])
+    st.markdown("### Bulk Update Status")
+    bulk_tickets = st.text_area("Enter Ticket(s) to Update (space-separated)")
+    new_status_bulk = st.selectbox("Set Bulk Status", ["Intake", "Return"])
     if st.button("Bulk Update"):
-        if tickets_bulk.strip():
-            tickets_list = tickets_bulk.strip().split()
-            updated = 0
+        if bulk_tickets.strip():
+            tickets_list = bulk_tickets.strip().split()
+            matched = 0
+            unmatched = []
             for t in tickets_list:
                 t = t.strip()
-                cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (bulk_status, t))
+                cursor.execute("UPDATE tickets SET status=? WHERE ticket_number=?", (new_status_bulk, t))
                 if cursor.rowcount > 0:
-                    updated += 1
+                    matched += 1
+                else:
+                    unmatched.append(t)
             conn.commit()
-            st.success(f"Updated {updated} ticket(s) to '{bulk_status}'.")
+            st.success(f"Updated {matched} ticket(s) to '{new_status_bulk}'.")
+            if unmatched:
+                st.warning(f"These ticket(s) were not found in DB: {', '.join(unmatched)}")
         else:
-            st.warning("Enter at least one ticket number for bulk update.")
+            st.warning("No tickets entered for bulk update.")
 
 # -----------------------------------------------------------
-# Page: Income (Day-wise, from Returned Tickets)
+# Page: Income (Day-wise, from Returned Tickets) w/ Date Filter
 # -----------------------------------------------------------
 def income_page():
-    st.header("Day-wise Returned Earnings")
-    st.markdown("Shows how much you've earned *per day* from tickets with status = Return.")
+    st.header("Day-wise Returned Earnings (Interactive)")
 
-    df = pd.read_sql("""
+    start_dt = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
+    end_dt = st.date_input("End Date", datetime.date.today())
+
+    query = """
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
         FROM tickets
-        WHERE status='Return'
+        WHERE status='Return' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date DESC
-    """, conn)
+    """
+    params = [start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")]
+    df = pd.read_sql(query, conn, params=params)
 
     if not df.empty:
         st.dataframe(df)
         total_earnings = df["day_earnings"].sum()
-        st.write(f"**Total Returned Earnings:** ${total_earnings:.2f}")
+        st.write(f"**Returned Earnings from {start_dt} to {end_dt}:** ${total_earnings:.2f}")
     else:
-        st.info("No returned tickets found.")
+        st.info("No returned tickets found in this date range.")
 
 # -----------------------------------------------------------
-# Page: History
+# Page: History (Minimal, No Graphs)
 # -----------------------------------------------------------
 def history_page():
-    st.header("History (Minimal, No Graphs)")
+    st.header("History: Batch-based listing, no charts")
     df_hist = pd.read_sql(
         """SELECT batch_name,
                   COUNT(*) AS ticket_count,
@@ -300,13 +339,13 @@ def history_page():
     )
     st.dataframe(df_hist)
     
-    st.markdown("### Batch Details")
+    st.markdown("### Batch Details (Return All in Batch)")
     for _, row in df_hist.iterrows():
         batch = row["batch_name"]
         if not batch:
             continue
         with st.expander(f"View Tickets for {batch}"):
-            if st.button(f"Return all tickets for {batch}", key=f"btn_return_{batch}"):
+            if st.button(f"Return all tickets for '{batch}'", key=f"btn_return_{batch}"):
                 cursor.execute("UPDATE tickets SET status='Return' WHERE batch_name=?", (batch,))
                 conn.commit()
                 st.success(f"All tickets in batch '{batch}' updated to Return.")
@@ -318,20 +357,24 @@ def history_page():
 # -----------------------------------------------------------
 def settings_page():
     st.header("Settings")
-    st.markdown("Adjust your ticket price (USD per sub-ticket).")
+    st.markdown("Adjust your ticket price (per sub-ticket).")
 
     new_price = st.number_input("Ticket Price (USD)", min_value=0.0,
                                 value=st.session_state.ticket_price, step=0.5)
     st.session_state.ticket_price = new_price
-    st.success("Price updated. All new tickets will use this price!")
+    st.success("Price updated! New tickets will use this price.")
 
 # -----------------------------------------------------------
 # Routing
 # -----------------------------------------------------------
-if menu == "Add Tickets" or menu == "Add Intake Tickets":
+if menu == "Add Tickets":
     add_tickets_page()
+elif menu == "Intake Tickets":
+    view_intake_tickets()
+elif menu == "Returned Tickets":
+    view_returned_tickets()
 elif menu == "Manage Tickets":
-    manage_tickets_page()
+    manage_tickets()
 elif menu == "Income":
     income_page()
 elif menu == "History":
@@ -347,7 +390,7 @@ st.markdown(
     <hr>
     <div style="text-align:center;">
         <p style="font-size:0.8rem; color:#777;">
-            &copy; 2025 Ticket Management App. Minimal version, day-wise earnings only.
+            &copy; 2025 Ticket Management App. Minimal version, day-wise income, separate intake/return pages.
         </p>
     </div>
     """,
