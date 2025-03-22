@@ -85,14 +85,14 @@ st.markdown(
     """
     <div class="header-banner">
         <h1>Ticket Management (Minimal + Day-wise Income)</h1>
-        <p>Manage tickets at $5.5 each, day-wise earnings, separate pages for Intake/Return/Delivered, unmatched logic.</p>
+        <p>Manage tickets at $5.5 each, with day-wise delivered income, separate pages for Intake/Return/Delivered, unmatched logic.</p>
     </div>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------
-# Optional: Lottie in Sidebar
+# Optional: Lottie Animation in Sidebar
 # -----------------------------------------------------------
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -156,7 +156,7 @@ menu = st.sidebar.radio(
 # -----------------------------------------------------------
 def add_tickets_page():
     st.header("Add Tickets (status='Intake')")
-    st.markdown("Ticket Price per sub-ticket: $%.2f" % st.session_state.ticket_price)
+    st.markdown(f"Ticket Price per sub-ticket: ${st.session_state.ticket_price:.2f}")
 
     raw_batch = st.text_input("Batch Name (optional)")
     ticket_input_type = st.radio("Ticket Input Type", ["Multiple/General", "Large Ticket"], index=0)
@@ -226,39 +226,28 @@ def add_tickets_page():
 # -----------------------------------------------------------
 def view_intake_tickets():
     st.header("Intake Tickets")
-    # Fetch all intake tickets
     df_intake = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='intake' ORDER BY date DESC", conn)
-    
-    # Display them in a DataFrame
     st.dataframe(df_intake)
     
-    # Calculate total sub_tickets among these intake tickets
+    # Calculate total sub-tickets for Intake tickets
     cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets WHERE LOWER(status)='intake'")
     row = cursor.fetchone()
-    total_intake_subtickets = row[0] if row and row[0] else 0
-    
-    # Show an overall count
-    st.write(f"**Total Intake Tickets (counting sub‐tickets):** {int(total_intake_subtickets)}")
+    total_intake = row[0] if row and row[0] else 0
+    st.write(f"**Total Intake Tickets (counting sub-tickets):** {int(total_intake)}")
 
 # -----------------------------------------------------------
 # Page: Returned Tickets (View only)
 # -----------------------------------------------------------
 def view_returned_tickets():
     st.header("Returned Tickets")
-    # Fetch all tickets with status="return"
     df_return = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='return' ORDER BY date DESC", conn)
-    
-    # Display in a DataFrame
     st.dataframe(df_return)
-
-    # Calculate total sub_tickets among returned tickets
+    
+    # Calculate total sub-tickets for Returned tickets
     cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets WHERE LOWER(status)='return'")
     row = cursor.fetchone()
-    total_return_subtickets = row[0] if row and row[0] else 0
-
-    # Show the overall sub-ticket count
-    st.write(f"**Total Returned Tickets (counting sub‐tickets):** {int(total_return_subtickets)}")
-
+    total_return = row[0] if row and row[0] else 0
+    st.write(f"**Total Returned Tickets (counting sub-tickets):** {int(total_return)}")
 
 # -----------------------------------------------------------
 # Page: Delivered Tickets (View only)
@@ -267,16 +256,41 @@ def view_delivered_tickets():
     st.header("Delivered Tickets")
     df_delivered = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='delivered' ORDER BY date DESC", conn)
     st.dataframe(df_delivered)
+    
+    # Calculate total sub-tickets for Delivered tickets
+    cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets WHERE LOWER(status)='delivered'")
+    row = cursor.fetchone()
+    total_delivered = row[0] if row and row[0] else 0
+    st.write(f"**Total Delivered Tickets (counting sub-tickets):** {int(total_delivered)}")
 
 # -----------------------------------------------------------
-# Page: Manage Tickets (Bulk update with unmatched logic)
+# Page: Manage Tickets (Bulk update with unmatched logic + Existence Check)
 # -----------------------------------------------------------
 def manage_tickets():
-    st.header("Manage Tickets (Bulk Update, Single Edit, Unmatched Logic)")
+    st.header("Manage Tickets (Bulk Update, Single Edit, Existence Check)")
+    
+    # 1) Check ticket existence
+    st.subheader("Check Ticket Existence")
+    check_ticket_num = st.text_input("Enter Ticket Number to Check")
+    if st.button("Check Existence"):
+        if check_ticket_num.strip():
+            cursor.execute("SELECT ticket_number FROM tickets WHERE ticket_number=?", (check_ticket_num.strip(),))
+            row = cursor.fetchone()
+            if row:
+                st.success(f"Ticket '{check_ticket_num.strip()}' exists in the database.")
+            else:
+                st.warning(f"Ticket '{check_ticket_num.strip()}' does NOT exist in the database.")
+        else:
+            st.info("Please enter a valid ticket number to check.")
+    
+    st.markdown("---")
+    
+    # 2) Show all tickets
+    st.subheader("All Tickets")
     df_all = pd.read_sql("SELECT * FROM tickets ORDER BY date DESC", conn)
     st.dataframe(df_all)
 
-    # Single ticket edit
+    # 3) Single ticket edit
     st.markdown("### Single Ticket Edit")
     single_ticket_edit = st.text_input("Ticket Number to Edit")
     new_status_single = st.selectbox("New Status", ["Intake", "Return", "Delivered"])
@@ -292,7 +306,7 @@ def manage_tickets():
         else:
             st.warning("Please enter a valid ticket number to update.")
 
-    # Single ticket deletion
+    # 4) Single ticket deletion
     st.markdown("### Single Ticket Deletion")
     single_ticket_delete = st.text_input("Ticket Number to Delete")
     if st.button("Delete Ticket"):
@@ -306,7 +320,7 @@ def manage_tickets():
         else:
             st.warning("Enter a valid ticket number to delete.")
 
-    # Bulk update
+    # 5) Bulk update
     st.markdown("### Bulk Update Status")
     bulk_tickets = st.text_area("Ticket(s) to Update (space-separated)")
     bulk_options = ["Intake", "Return", "Delivered"]
@@ -438,11 +452,9 @@ def history_page():
                     st.success(f"All tickets in batch '{batch}' marked as Return.")
             with colB:
                 if st.button(f"Deliver all tickets for '{batch}'", key=f"deliver_{batch}"):
-                    # set all to 'Delivered'
                     cursor.execute("UPDATE tickets SET status='Delivered' WHERE batch_name=?", (batch,))
                     conn.commit()
                     st.success(f"All tickets in batch '{batch}' marked as Delivered.")
-
             df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name=?", conn, params=(batch,))
             st.dataframe(df_batch)
 
@@ -451,11 +463,25 @@ def history_page():
 # -----------------------------------------------------------
 def settings_page():
     st.header("Settings")
-    st.markdown("Adjust your ticket price (per sub-ticket).")
+    st.markdown("Adjust your ticket price (per sub-ticket) and customize additional options.")
 
+    # Ticket Price
     new_price = st.number_input("Ticket Price (USD)", min_value=0.0, value=st.session_state.ticket_price, step=0.5)
     st.session_state.ticket_price = new_price
-    st.success("Price updated! New tickets will use this price.")
+    st.success(f"Ticket price updated to ${new_price:.2f}. New tickets will use this price.")
+
+    # Additional customizations (e.g., Company Name, Batch Prefix)
+    if "company_name" not in st.session_state:
+        st.session_state["company_name"] = "My Business"
+    updated_company = st.text_input("Company Name", value=st.session_state.company_name)
+    st.session_state.company_name = updated_company
+
+    if "batch_prefix" not in st.session_state:
+        st.session_state["batch_prefix"] = "Batch-"
+    updated_prefix = st.text_input("Default Batch Prefix", value=st.session_state.batch_prefix)
+    st.session_state.batch_prefix = updated_prefix
+
+    st.info("Settings updated. These will be used throughout the app.")
 
 # -----------------------------------------------------------
 # Routing
@@ -485,7 +511,7 @@ st.markdown(
     <hr>
     <div style="text-align:center;">
         <p style="font-size:0.8rem; color:#777;">
-            &copy; 2025 Ticket Management App. Minimal version, day-wise delivered income, unmatched logic.
+            &copy; 2025 Ticket Management App. Minimal version, day-wise delivered income, unmatched ticket logic, with ticket existence check.
         </p>
     </div>
     """,
