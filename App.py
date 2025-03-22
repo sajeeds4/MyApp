@@ -163,22 +163,26 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
-    # Calculate totals (each row's num_sub_tickets gives total individual tickets)
+    # For every metric, we sum num_sub_tickets so that both single tickets (1) and large tickets (>1) are counted.
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
     total_ready = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Delivered'")
     total_delivered = cursor.fetchone()[0] or 0
+    # Overall total: sum of all tickets (single + large)
+    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets")
+    total_overall = cursor.fetchone()[0] or 0
 
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display key metrics using st.metric
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
-    col2.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
-    col3.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
+    # Display metrics using st.metric (4 columns)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Overall Total Tickets", f"{int(total_overall)}")
+    col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
+    col3.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
+    col4.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
 
     # Date Range Analysis
     st.subheader("📅 Date Range Analysis")
@@ -201,7 +205,7 @@ def dashboard_page():
     df_daily = pd.read_sql(query, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
     if not df_daily.empty:
         df_daily['date'] = pd.to_datetime(df_daily['date'])
-        # Ticket activity chart
+        # Ticket activity chart (using SUM(num_sub_tickets))
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
                                    mode='lines+markers', name='Delivered',
@@ -216,7 +220,7 @@ def dashboard_page():
                           hovermode='x unified', template='plotly_white', height=500)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Daily Earnings Chart
+        # Daily Earnings Chart (summing earnings based on num_sub_tickets)
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
         fig2 = px.bar(df_daily, x='date', y='delivered_value',
                       title="Daily Delivery Earnings",
