@@ -910,6 +910,64 @@ def manage_tickets_page():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
+
+# -----------------------------------------------------------
+# Page: Income
+# -----------------------------------------------------------
+def income_page():
+    col_anim, col_title = st.columns([1, 5])
+    with col_anim:
+        if animations["money"]:
+            st_lottie(animations["money"], height=150, key="money_anim")
+    with col_title:
+        st.markdown("## 💰 Income Analysis")
+        st.write("Track and analyze your earnings from delivered tickets")
+    
+    st.markdown('<div class="content-container">', unsafe_allow_html=True)
+    
+    # Date range selector
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
+    with col2:
+        end_date = st.date_input("End Date", datetime.date.today())
+    
+    # Query for delivered tickets in date range
+    query = """
+        SELECT date,
+               SUM(num_sub_tickets * pay) AS day_earnings
+        FROM tickets
+        WHERE status='Delivered' AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date DESC
+    """
+    params = [start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]
+    df_income = pd.read_sql(query, conn, params=params)
+    
+    if not df_income.empty:
+        # Display earnings chart
+        fig = px.area(
+            df_income,
+            x="date",
+            y="day_earnings",
+            title="Daily Earnings Trend",
+            labels={"day_earnings": "Earnings ($)", "date": "Date"},
+            color_discrete_sequence=["#4CAF50"]
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Show data table
+        st.subheader("Detailed Earnings")
+        st.dataframe(df_income, use_container_width=True)
+        
+        # Calculate total earnings
+        total_earnings = df_income["day_earnings"].sum()
+        st.metric("Total Earnings in Period", f"${total_earnings:,.2f}")
+    else:
+        st.info("No delivered tickets found in this date range")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # -----------------------------------------------------------
 # Page: Settings
 # -----------------------------------------------------------
