@@ -872,43 +872,44 @@ def manage_tickets_page():
                         conn.commit()
                         st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
     
-    with tab3:
-        st.subheader("Ticket Deletion")
-        delete_option = st.radio(
-            "Deletion Method", 
-            ["Single Ticket", "By Batch", "By Date Range"]
-        )
+   with tab3:
+    st.subheader("Ticket Deletion")
+    delete_option = st.radio(
+        "Deletion Method", 
+        ["Single Ticket", "By Batch", "By Date Range"]
+    )
+    
+    # Proper indentation for all conditionals
+    if delete_option == "Single Ticket":
+        del_ticket = st.text_input("Enter Ticket Number to Delete")
+        if del_ticket and st.button("Delete Ticket"):
+            cursor.execute("DELETE FROM tickets WHERE ticket_number = ?", (del_ticket.strip(),))
+            conn.commit()
+            if cursor.rowcount > 0:
+                st.success("Ticket deleted successfully")
+            else:
+                st.error("Ticket not found")
+    
+    elif delete_option == "By Batch":
+        batch_name = st.text_input("Enter Batch Name to Delete")
+        if batch_name and st.button("Delete Entire Batch"):
+            cursor.execute("DELETE FROM tickets WHERE batch_name = ?", (batch_name.strip(),))
+            conn.commit()
+            st.success(f"Deleted {cursor.rowcount} tickets from batch {batch_name}")
+    
+    elif delete_option == "By Date Range":  # Now properly aligned
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date")
+        with col2:
+            end_date = st.date_input("End Date")
         
-        if delete_option == "Single Ticket":
-            del_ticket = st.text_input("Enter Ticket Number to Delete")
-            if del_ticket and st.button("Delete Ticket"):
-                cursor.execute("DELETE FROM tickets WHERE ticket_number = ?", (del_ticket.strip(),))
-                conn.commit()
-                if cursor.rowcount > 0:
-                    st.success("Ticket deleted successfully")
-                else:
-                    st.error("Ticket not found")
-        
-        elif delete_option == "By Batch":
-            batch_name = st.text_input("Enter Batch Name to Delete")
-            if batch_name and st.button("Delete Entire Batch"):
-                cursor.execute("DELETE FROM tickets WHERE batch_name = ?", (batch_name.strip(),))
-                conn.commit()
-                st.success(f"Deleted {cursor.rowcount} tickets from batch {batch_name}")
-        
-                        elif delete_option == "By Date Range":
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input("Start Date")
-            with col2:
-                end_date = st.date_input("End Date")
-            
-            if st.button("Delete Tickets in Date Range"):
-                cursor.execute(
-                    "DELETE FROM tickets WHERE date BETWEEN ? AND ?",
-                    (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
-                conn.commit()
-                st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
+        if st.button("Delete Tickets in Date Range"):
+            cursor.execute(
+                "DELETE FROM tickets WHERE date BETWEEN ? AND ?",
+                (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+            conn.commit()
+            st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
