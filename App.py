@@ -282,7 +282,10 @@ cursor = conn.cursor()
 # -----------------------------------------------------------
 # Top Navigation
 # -----------------------------------------------------------
-def render_navbar(active_page):
+# -----------------------------------------------------------
+# Top Navigation (Updated Version)
+# -----------------------------------------------------------
+def render_navbar():
     pages = {
         "Dashboard": "📊",
         "Add Tickets": "➕",
@@ -292,38 +295,54 @@ def render_navbar(active_page):
         "Settings": "⚙️"
     }
     
+    # Initialize session state for page navigation
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "Dashboard"
+    
+    # Create navigation buttons
+    cols = st.columns(len(pages))
+    for idx, (page_name, icon) in enumerate(pages.items()):
+        with cols[idx]:
+            if st.button(
+                f"{icon} {page_name}",
+                key=f"nav_{page_name}",
+                use_container_width=True,
+                type="primary" if st.session_state.current_page == page_name else "secondary"
+            ):
+                st.session_state.current_page = page_name
+                
+    st.markdown("---")
+
+# -----------------------------------------------------------
+# Main App Flow (Updated Version)
+# -----------------------------------------------------------
+def main():
+    pages = {
+        "Dashboard": dashboard_page,
+        "Add Tickets": add_tickets_page,
+        "View Tickets": view_tickets_page,
+        "Manage Tickets": manage_tickets_page,
+        "Income": income_page,
+        "Settings": settings_page
+    }
+    
+    # Render navigation
+    render_navbar()
+    
+    # Execute the selected page
+    if st.session_state.current_page in pages:
+        pages[st.session_state.current_page]()
+    
+    # Footer
     st.markdown(
         f"""
-        <div class="top-nav">
-            <h2>🎟️ {st.session_state.company_name} Ticket System</h2>
-            <div class="nav-links">
-                {"".join([f'<a href="#{page.lower().replace(" ", "-")}" class="nav-link {"nav-link-active" if page == active_page else ""}" onclick="stNavigationClick(\'{page}\')">{icon} {page}</a>' for page, icon in pages.items()])}
-            </div>
+        <div class="footer">
+            <p>{st.session_state.company_name} Ticket System • {datetime.datetime.now().year}</p>
+            <p>Powered by Streamlit • v1.0</p>
         </div>
-        <script>
-        function stNavigationClick(page) {{
-            setTimeout(function() {{
-                window.parent.postMessage({{
-                    type: 'streamlit:setComponentValue',
-                    value: page
-                }}, '*');
-            }}, 100);
-        }}
-        </script>
         """,
         unsafe_allow_html=True
     )
-    
-    # Streamlit's built-in navigation handling (fallback)
-    nav = st.empty()
-    selected_page = nav.selectbox(
-        "Navigation",
-        list(pages.keys()),
-        index=list(pages.keys()).index(active_page),
-        label_visibility="collapsed"
-    )
-    
-    return selected_page
 
 # -----------------------------------------------------------
 # Page: Dashboard
