@@ -226,16 +226,39 @@ def add_tickets_page():
 # -----------------------------------------------------------
 def view_intake_tickets():
     st.header("Intake Tickets")
+    # Fetch all intake tickets
     df_intake = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='intake' ORDER BY date DESC", conn)
+    
+    # Display them in a DataFrame
     st.dataframe(df_intake)
+    
+    # Calculate total sub_tickets among these intake tickets
+    cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets WHERE LOWER(status)='intake'")
+    row = cursor.fetchone()
+    total_intake_subtickets = row[0] if row and row[0] else 0
+    
+    # Show an overall count
+    st.write(f"**Total Intake Tickets (counting sub‐tickets):** {int(total_intake_subtickets)}")
 
 # -----------------------------------------------------------
 # Page: Returned Tickets (View only)
 # -----------------------------------------------------------
 def view_returned_tickets():
     st.header("Returned Tickets")
+    # Fetch all tickets with status="return"
     df_return = pd.read_sql("SELECT * FROM tickets WHERE LOWER(status)='return' ORDER BY date DESC", conn)
+    
+    # Display in a DataFrame
     st.dataframe(df_return)
+
+    # Calculate total sub_tickets among returned tickets
+    cursor.execute("SELECT IFNULL(SUM(num_sub_tickets), 0) FROM tickets WHERE LOWER(status)='return'")
+    row = cursor.fetchone()
+    total_return_subtickets = row[0] if row and row[0] else 0
+
+    # Show the overall sub-ticket count
+    st.write(f"**Total Returned Tickets (counting sub‐tickets):** {int(total_return_subtickets)}")
+
 
 # -----------------------------------------------------------
 # Page: Delivered Tickets (View only)
