@@ -896,7 +896,7 @@ def manage_tickets_page():
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from batch {batch_name}")
         
-        elif delete_option == "By Date Range":
+                        elif delete_option == "By Date Range":
             col1, col2 = st.columns(2)
             with col1:
                 start_date = st.date_input("Start Date")
@@ -906,7 +906,7 @@ def manage_tickets_page():
             if st.button("Delete Tickets in Date Range"):
                 cursor.execute(
                     "DELETE FROM tickets WHERE date BETWEEN ? AND ?",
-                    (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+                    (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
     
