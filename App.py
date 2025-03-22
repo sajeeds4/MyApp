@@ -12,71 +12,61 @@ from streamlit_lottie import st_lottie
 st.session_state.setdefault("ticket_price", 5.5)
 
 # -----------------------------------------------------------
-# Basic Page Configuration & CSS
-# -----------------------------------------------------------
-st.set_page_config(
-    page_title="Ticket Management (Minimal + Day-wise Income)",
-    page_icon=":ticket:",
-    layout="wide"
-)
-
+# Add this new CSS style block
 st.markdown(
     """
     <style>
-    body {
-        background-color: #f5f5f5;
-        font-family: Arial, sans-serif;
-    }
-    .reportview-container .main .block-container {
-        padding: 2rem;
-        background-color: #fff;
+    .metric-card {
+        background: #ffffff;
         border-radius: 10px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.1);
-        max-width: 1200px;
-        margin: auto;
+        padding: 20px;
+        margin: 10px 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #4CAF50;
     }
-    .sidebar .sidebar-content {
-        background-color: #fff;
-    }
-    .header-banner {
-        background-color: #555;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        padding: 2rem;
-        text-align: center;
-        color: #fff;
-    }
-    .header-banner h1 {
-        font-size: 2rem;
-        margin: 0;
-    }
-    div.stButton > button {
-        background-color: #4CAF50;
-        color: #fff;
+    .metric-title {
         font-size: 16px;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-        cursor: pointer;
-        transition: transform 0.2s, background-color 0.3s ease;
-        box-shadow: 0 5px #999;
-        margin: 0.5rem;
+        color: #666;
+        margin-bottom: 8px;
     }
-    div.stButton > button:hover {
-        background-color: #45a049;
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
     }
-    div.stButton > button:active {
-        background-color: #3e8e41;
-        transform: translateY(4px);
-        box-shadow: 0 2px #666;
+    .metric-subvalue {
+        font-size: 16px;
+        color: #4CAF50;
     }
-    input, textarea, select {
-        font-size: 16px !important;
+    .daily-chart {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 20px 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
     </style>
     """,
     unsafe_allow_html=True
 )
+
+# Add Dashboard to navigation menu
+menu = st.sidebar.radio(
+    "Navigation",
+    [
+        "Dashboard",  # New dashboard first
+        "Add Tickets",
+        "Intake Tickets",
+        "Returned Tickets",
+        "Delivered Tickets",
+        "Manage Tickets",
+        "Income",
+        "History",
+        "Settings"
+    ],
+    index=0
+)
+
 
 # -----------------------------------------------------------
 # Top Banner
@@ -262,6 +252,131 @@ def view_delivered_tickets():
     row = cursor.fetchone()
     total_delivered = row[0] if row and row[0] else 0
     st.write(f"**Total Delivered Tickets (counting sub-tickets):** {int(total_delivered)}")
+
+
+# New Page: Dashboard
+# -----------------------------------------------------------
+def dashboard_page():
+    st.header("📊 Ticket Management Dashboard")
+    
+    # Calculate Key Metrics
+    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
+    total_intake = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
+    total_returned = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Delivered'")
+    total_delivered = cursor.fetchone()[0] or 0
+    
+    estimated_earnings = total_intake * st.session_state.ticket_price
+    actual_earnings = (total_delivered * st.session_state.ticket_price) 
+    
+    # First Row: Key Metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(
+            f"<div class='metric-card'>"
+            f"<div class='metric-title'>📥 Total Intake</div>"
+            f"<div class='metric-value'>{int(total_intake)}</div>"
+            f"<div class='metric-subvalue'>${estimated_earnings:.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    with col2:
+        st.markdown(
+            f"<div class='metric-card' style='border-color: #ff9800;'>"
+            f"<div class='metric-title'>🔄 Total Returned</div>"
+            f"<div class='metric-value'>{int(total_returned)}</div>"
+            f"<div class='metric-subvalue' style='color: #ff9800;'>-${total_returned * st.session_state.ticket_price:.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    with col3:
+        st.markdown(
+            f"<div class='metric-card' style='border-color: #2196F3;'>"
+            f"<div class='metric-title'>🚚 Total Delivered</div>"
+            f"<div class='metric-value'>{int(total_delivered)}</div>"
+            f"<div class='metric-subvalue' style='color: #2196F3;'>${actual_earnings:.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    # Second Row: Earnings Comparison
+    col4, col5 = st.columns(2)
+    with col4:
+        st.markdown(
+            f"<div class='metric-card'>"
+            f"<div class='metric-title'>💰 Estimated Earnings (Intake)</div>"
+            f"<div class='metric-value' style='color: #4CAF50;'>${estimated_earnings:.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    with col5:
+        st.markdown(
+            f"<div class='metric-card'>"
+            f"<div class='metric-title'>💵 Actual Earnings (Delivered)</div>"
+            f"<div class='metric-value' style='color: #2196F3;'>${actual_earnings:.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    # Third Row: Charts
+    st.markdown("## Daily Performance")
+    
+    # Date range selector
+    end_date = datetime.date.today()
+    start_date = end_date - datetime.timedelta(days=30)
+    
+    col6, col7 = st.columns(2)
+    with col6:
+        selected_start = st.date_input("Start Date", start_date)
+    with col7:
+        selected_end = st.date_input("End Date", end_date)
+    
+    # Daily Resolution Chart
+    query = """
+    SELECT date, 
+           SUM(CASE WHEN status='Delivered' THEN num_sub_tickets ELSE 0 END) as delivered,
+           SUM(CASE WHEN status='Return' THEN num_sub_tickets ELSE 0 END) as returned
+    FROM tickets
+    WHERE date BETWEEN ? AND ?
+    GROUP BY date
+    ORDER BY date
+    """
+    
+    df_daily = pd.read_sql(query, conn, params=[selected_start, selected_end])
+    
+    if not df_daily.empty:
+        df_daily['date'] = pd.to_datetime(df_daily['date'])
+        df_daily.set_index('date', inplace=True)
+        
+        st.markdown("### 📈 Daily Ticket Resolution")
+        st.area_chart(df_daily[['delivered', 'returned']], use_container_width=True)
+        
+        # Weekly Summary
+        st.markdown("### 📅 Weekly Summary")
+        df_weekly = df_daily.resample('W').sum()
+        st.dataframe(df_weekly.style.background_gradient(cmap='Blues'))
+    else:
+        st.info("No data available for selected date range")
+    
+    # Recent Activity
+    st.markdown("### ⏳ Recent Activity")
+    df_recent = pd.read_sql(
+        "SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC LIMIT 10", 
+        conn
+    )
+    st.dataframe(df_recent.style.applymap(lambda x: 'color: #4CAF50' if x == 'Delivered' else ('color: #ff9800' if x == 'Return' else 'color: #666')))
+
+# Update the routing section
+if menu == "Dashboard":
+    dashboard_page()
+elif menu == "Add Tickets":
+    add_tickets_page()
 
 # -----------------------------------------------------------
 # Page: Manage Tickets (Bulk update with unmatched logic + Existence Check)
