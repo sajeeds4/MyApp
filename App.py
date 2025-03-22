@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------
-# Session State
+# Session State Initialization
 # -----------------------------------------------------------
 if "ticket_price" not in st.session_state:
     st.session_state.ticket_price = 5.5
@@ -28,6 +28,8 @@ if "batch_prefix" not in st.session_state:
     st.session_state.batch_prefix = "Batch-"
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "Dashboard"  # default page
 
 # -----------------------------------------------------------
 # Styling
@@ -67,30 +69,25 @@ def load_css():
             align-items: center;
         }}
         
-        .nav-links {{
+        .nav-buttons {{
             display: flex;
-            gap: 20px;
-            justify-content: center;
+            gap: 10px;
             flex-wrap: wrap;
         }}
         
-        .nav-link {{
-            font-weight: 500;
-            padding: 6px 12px;
-            border-radius: 20px;
-            text-decoration: none;
-            color: {text_color};
-            transition: all 0.3s;
-        }}
-        
-        .nav-link:hover {{
-            background-color: rgba(76, 175, 80, 0.1);
-            color: {primary_color};
-        }}
-        
-        .nav-link-active {{
+        .nav-btn {{
             background-color: {primary_color};
             color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }}
+        
+        .nav-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }}
         
         /* Metrics */
@@ -148,26 +145,6 @@ def load_css():
             to {{ opacity: 1; transform: translateY(0); }}
         }}
         
-        /* Action Buttons */
-        .action-btn {{
-            background-color: {primary_color};
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-align: center;
-            font-weight: 500;
-            border: none;
-            margin: 5px;
-        }}
-        
-        .action-btn:hover {{
-            opacity: 0.9;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }}
-        
         /* Custom Footer */
         .footer {{
             text-align: center;
@@ -212,13 +189,6 @@ def load_css():
         #MainMenu, footer, header {{
             visibility: hidden;
         }}
-        
-        /* Animation */
-        @keyframes pulse {{
-            0% {{ transform: scale(1); }}
-            50% {{ transform: scale(1.05); }}
-            100% {{ transform: scale(1); }}
-        }}
         </style>
         """,
         unsafe_allow_html=True
@@ -247,7 +217,7 @@ animations = {
 }
 
 # -----------------------------------------------------------
-# Database
+# Database Setup
 # -----------------------------------------------------------
 def get_db_connection():
     conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
@@ -256,7 +226,6 @@ def get_db_connection():
 def setup_database():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
     # Create tickets table if not exists
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS tickets (
@@ -266,7 +235,7 @@ def setup_database():
         batch_name TEXT,
         ticket_number TEXT UNIQUE,
         num_sub_tickets INTEGER DEFAULT 1,
-        status TEXT DEFAULT 'Intake',
+        status TEXT DEFAULT 'Intake',  -- Note: 'Return' here means ticket is ready for delivery.
         pay REAL DEFAULT 5.5,
         comments TEXT DEFAULT '',
         ticket_day TEXT,
@@ -280,10 +249,7 @@ conn = setup_database()
 cursor = conn.cursor()
 
 # -----------------------------------------------------------
-# Top Navigation
-# -----------------------------------------------------------
-# -----------------------------------------------------------
-# Top Navigation (Updated Version)
+# Navigation
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -295,54 +261,20 @@ def render_navbar():
         "Settings": "⚙️"
     }
     
-    # Initialize session state for page navigation
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = "Dashboard"
+    st.markdown(f"""
+    <div class="top-nav">
+        <h2>🎟️ {st.session_state.company_name} Ticket System</h2>
+        <div class="nav-buttons">
+    """, unsafe_allow_html=True)
     
-    # Create navigation buttons
+    # Create a button for each page
     cols = st.columns(len(pages))
-    for idx, (page_name, icon) in enumerate(pages.items()):
-        with cols[idx]:
-            if st.button(
-                f"{icon} {page_name}",
-                key=f"nav_{page_name}",
-                use_container_width=True,
-                type="primary" if st.session_state.current_page == page_name else "secondary"
-            ):
-                st.session_state.current_page = page_name
-                
-    st.markdown("---")
-
-# -----------------------------------------------------------
-# Main App Flow (Updated Version)
-# -----------------------------------------------------------
-def main():
-    pages = {
-        "Dashboard": dashboard_page,
-        "Add Tickets": add_tickets_page,
-        "View Tickets": view_tickets_page,
-        "Manage Tickets": manage_tickets_page,
-        "Income": income_page,
-        "Settings": settings_page
-    }
+    for i, (page, icon) in enumerate(pages.items()):
+        if cols[i].button(f"{icon} {page}"):
+            st.session_state.active_page = page
+            st.experimental_rerun()
     
-    # Render navigation
-    render_navbar()
-    
-    # Execute the selected page
-    if st.session_state.current_page in pages:
-        pages[st.session_state.current_page]()
-    
-    # Footer
-    st.markdown(
-        f"""
-        <div class="footer">
-            <p>{st.session_state.company_name} Ticket System • {datetime.datetime.now().year}</p>
-            <p>Powered by Streamlit • v1.0</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 # -----------------------------------------------------------
 # Page: Dashboard
@@ -370,7 +302,7 @@ def dashboard_page():
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
     
-    # First Row: Key Metrics
+    # Key Metrics Row
     st.markdown(
         f"""
         <div class="metric-row">
@@ -392,9 +324,7 @@ def dashboard_page():
                 <div class="metric-subvalue" style="color: #2196F3;">${actual_earnings:.2f}</div>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True)
     
     # Visualization Container
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
@@ -407,7 +337,7 @@ def dashboard_page():
     with col2:
         end_date = st.date_input("End Date", datetime.date.today())
     
-    # Daily Resolution Chart
+    # Daily Resolution Chart Query
     query = """
     SELECT date, 
            SUM(CASE WHEN status='Delivered' THEN num_sub_tickets ELSE 0 END) as delivered,
@@ -424,7 +354,7 @@ def dashboard_page():
     if not df_daily.empty:
         df_daily['date'] = pd.to_datetime(df_daily['date'])
         
-        # Create a more interactive Plotly chart
+        # Plotly interactive chart
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=df_daily['date'], 
@@ -475,10 +405,8 @@ def dashboard_page():
             labels={'delivered_value': 'Earnings ($)', 'date': 'Date'},
             color_discrete_sequence=['#4CAF50']
         )
-        
         fig2.update_layout(height=400)
         st.plotly_chart(fig2, use_container_width=True)
-        
     else:
         st.info("No data available for selected date range")
     
@@ -491,17 +419,12 @@ def dashboard_page():
     col_stat1, col_stat2 = st.columns(2)
     
     with col_stat1:
-        # Calculate conversion rate
-        if total_intake > 0:
-            conversion_rate = (total_delivered / total_intake) * 100
-        else:
-            conversion_rate = 0
-            
+        conversion_rate = (total_delivered / total_intake * 100) if total_intake > 0 else 0
         fig_gauge = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = conversion_rate,
-            title = {'text': "Delivery Rate"},
-            gauge = {
+            mode="gauge+number",
+            value=conversion_rate,
+            title={'text': "Delivery Rate"},
+            gauge={
                 'axis': {'range': [0, 100]},
                 'bar': {'color': "#4CAF50"},
                 'steps': [
@@ -511,19 +434,12 @@ def dashboard_page():
                 ]
             }
         ))
-        
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
     
     with col_stat2:
-        # Daily activity breakdown
-        query_status = """
-        SELECT status, COUNT(*) as count
-        FROM tickets
-        GROUP BY status
-        """
+        query_status = "SELECT status, COUNT(*) as count FROM tickets GROUP BY status"
         df_status = pd.read_sql(query_status, conn)
-        
         if not df_status.empty:
             fig_pie = px.pie(
                 df_status, 
@@ -548,17 +464,14 @@ def dashboard_page():
     # Recent Activity
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     st.subheader("⏱️ Recent Activity")
-    
     df_recent = pd.read_sql(
         "SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", 
         conn
     )
-    
     if not df_recent.empty:
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent activity to display")
-    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------
@@ -575,21 +488,16 @@ def add_tickets_page():
     
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     
-    # Input Form
     col1, col2 = st.columns([2, 1])
-    
     with col1:
         batch_name = st.text_input("Batch Name (optional)", placeholder="Enter a meaningful batch name")
         ticket_input_type = st.radio("Ticket Input Type", ["Multiple/General", "Large Ticket"], horizontal=True)
-        
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
-        
         if not batch_name.strip():
             cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
             batch_count = cursor.fetchone()[0] + 1
             batch_name = f"{st.session_state.batch_prefix}{batch_count}"
-    
     with col2:
         st.markdown("""
         ### Quick Instructions
@@ -601,67 +509,52 @@ def add_tickets_page():
     
     if ticket_input_type == "Multiple/General":
         tickets_text = st.text_area("Enter Ticket Number(s)", placeholder="Space or new-line separated ticket numbers")
-        
         col_submit1, col_submit2 = st.columns([1, 5])
         with col_submit1:
             submit_button = st.button("Add Tickets", use_container_width=True)
-        
         if submit_button:
             if tickets_text.strip():
-                # Split by space or newline
                 tickets_list = tickets_text.replace('\n', ' ').strip().split()
                 success_count = 0
                 failed_tickets = []
-                
                 for t in tickets_list:
                     t = t.strip()
                     if t:
                         try:
-                            cursor.execute("""INSERT INTO tickets
-                                (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                                VALUES(?,?,?,?,?,?,?)""",
-                                (
-                                    current_date, current_time, batch_name, t, 1,
-                                    "Intake", st.session_state.ticket_price
-                                )
+                            cursor.execute(
+                                """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                                   VALUES(?,?,?,?,?,?,?)""",
+                                (current_date, current_time, batch_name, t, 1, "Intake", st.session_state.ticket_price)
                             )
                             success_count += 1
                         except sqlite3.IntegrityError:
                             failed_tickets.append(t)
-                
                 conn.commit()
-                
                 if success_count:
                     st.success(f"Successfully added {success_count} ticket(s) to batch '{batch_name}'.")
                     if animations["success"]:
                         st_lottie(animations["success"], height=120)
-                
                 if failed_tickets:
                     st.warning(f"Could not add {len(failed_tickets)} ticket(s) because they already exist: {', '.join(failed_tickets[:5])}{'...' if len(failed_tickets) > 5 else ''}")
             else:
                 st.warning("Please enter ticket number(s).")
     else:
-        # Large Ticket
+        # For Large Ticket Input
         col_large1, col_large2 = st.columns(2)
         with col_large1:
             large_ticket = st.text_input("Large Ticket Number", placeholder="Enter the main ticket number")
         with col_large2:
             sub_count = st.number_input("Number of Sub-Tickets", min_value=1, value=5, step=1)
-        
         col_submit1, col_submit2 = st.columns([1, 5])
         with col_submit1:
             submit_large = st.button("Add Large Ticket", use_container_width=True)
-        
         if submit_large:
             if large_ticket.strip():
                 try:
-                    cursor.execute("""INSERT INTO tickets
-                        (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                        VALUES(?,?,?,?,?,?,?)""",
-                        (
-                            current_date, current_time, batch_name, large_ticket.strip(),
-                            sub_count, "Intake", st.session_state.ticket_price
-                        )
+                    cursor.execute(
+                        """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                           VALUES(?,?,?,?,?,?,?)""",
+                        (current_date, current_time, batch_name, large_ticket.strip(), sub_count, "Intake", st.session_state.ticket_price)
                     )
                     conn.commit()
                     st.success(f"Added large ticket '{large_ticket}' with {sub_count} sub-tickets to batch '{batch_name}'.")
@@ -674,20 +567,14 @@ def add_tickets_page():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Show recent additions
+    # Recent Additions
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     st.subheader("Recent Additions")
-    
-    df_recent = pd.read_sql(
-        "SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", 
-        conn
-    )
-    
+    df_recent = pd.read_sql("SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", conn)
     if not df_recent.empty:
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent tickets added.")
-    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------
@@ -695,22 +582,15 @@ def add_tickets_page():
 # -----------------------------------------------------------
 def view_tickets_page():
     st.markdown("## 👁️ View Tickets by Status")
-    
     tab1, tab2, tab3 = st.tabs(["📥 Intake", "🔄 Return", "🚚 Delivered"])
     
     with tab1:
         st.markdown('<div class="content-container">', unsafe_allow_html=True)
-        df_intake = pd.read_sql(
-            "SELECT * FROM tickets WHERE status='Intake' ORDER BY date DESC, time DESC", 
-            conn
-        )
-        
+        df_intake = pd.read_sql("SELECT * FROM tickets WHERE status='Intake' ORDER BY date DESC, time DESC", conn)
         if not df_intake.empty:
             st.dataframe(df_intake, use_container_width=True)
-            
             total_intake = df_intake['num_sub_tickets'].sum()
             total_value = total_intake * st.session_state.ticket_price
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total Sub-Tickets", f"{int(total_intake)}")
@@ -722,17 +602,11 @@ def view_tickets_page():
     
     with tab2:
         st.markdown('<div class="content-container">', unsafe_allow_html=True)
-        df_return = pd.read_sql(
-            "SELECT * FROM tickets WHERE status='Return' ORDER BY date DESC, time DESC", 
-            conn
-        )
-        
+        df_return = pd.read_sql("SELECT * FROM tickets WHERE status='Return' ORDER BY date DESC, time DESC", conn)
         if not df_return.empty:
             st.dataframe(df_return, use_container_width=True)
-            
             total_return = df_return['num_sub_tickets'].sum()
             lost_value = total_return * st.session_state.ticket_price
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total Returned", f"{int(total_return)}")
@@ -744,17 +618,11 @@ def view_tickets_page():
     
     with tab3:
         st.markdown('<div class="content-container">', unsafe_allow_html=True)
-        df_delivered = pd.read_sql(
-            "SELECT * FROM tickets WHERE status='Delivered' ORDER BY date DESC, time DESC", 
-            conn
-        )
-        
+        df_delivered = pd.read_sql("SELECT * FROM tickets WHERE status='Delivered' ORDER BY date DESC, time DESC", conn)
         if not df_delivered.empty:
             st.dataframe(df_delivered, use_container_width=True)
-            
             total_delivered = df_delivered['num_sub_tickets'].sum()
             earned_value = total_delivered * st.session_state.ticket_price
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total Delivered", f"{int(total_delivered)}")
@@ -777,46 +645,25 @@ def manage_tickets_page():
         st.write("Advanced ticket management operations")
     
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
-    
     tab1, tab2, tab3 = st.tabs(["🔍 Search & Edit", "⚡ Bulk Operations", "🗑️ Delete Tickets"])
     
+    # Tab 1: Search & Edit
     with tab1:
         st.subheader("Individual Ticket Management")
         ticket_number = st.text_input("Enter Ticket Number to Manage")
-        
         if ticket_number:
-            ticket_data = pd.read_sql(
-                "SELECT * FROM tickets WHERE ticket_number = ?", 
-                conn, 
-                params=(ticket_number.strip(),)
-            )
-            
+            ticket_data = pd.read_sql("SELECT * FROM tickets WHERE ticket_number = ?", conn, params=(ticket_number.strip(),))
             if not ticket_data.empty:
                 with st.form("edit_ticket_form"):
                     current_status = ticket_data.iloc[0]['status']
-                    new_status = st.selectbox(
-                        "Status", 
-                        ["Intake", "Return", "Delivered"],
-                        index=["Intake", "Return", "Delivered"].index(current_status)
-                    )
-                    new_subtickets = st.number_input(
-                        "Sub-Tickets", 
-                        min_value=1, 
-                        value=int(ticket_data.iloc[0]['num_sub_tickets'])
-                    )
-                    new_price = st.number_input(
-                        "Ticket Price", 
-                        min_value=0.0, 
-                        value=float(ticket_data.iloc[0]['pay']),
-                        step=0.5
-                    )
-                    
+                    new_status = st.selectbox("Status", ["Intake", "Return", "Delivered"], index=["Intake", "Return", "Delivered"].index(current_status))
+                    new_subtickets = st.number_input("Sub-Tickets", min_value=1, value=int(ticket_data.iloc[0]['num_sub_tickets']))
+                    new_price = st.number_input("Ticket Price", min_value=0.0, value=float(ticket_data.iloc[0]['pay']), step=0.5)
                     if st.form_submit_button("Update Ticket"):
-                        cursor.execute("""
-                            UPDATE tickets 
-                            SET status = ?, num_sub_tickets = ?, pay = ?
-                            WHERE ticket_number = ?
-                        """, (new_status, new_subtickets, new_price, ticket_number.strip()))
+                        cursor.execute(
+                            "UPDATE tickets SET status = ?, num_sub_tickets = ?, pay = ? WHERE ticket_number = ?",
+                            (new_status, new_subtickets, new_price, ticket_number.strip())
+                        )
                         conn.commit()
                         st.success("Ticket updated successfully!")
                         if animations["success"]:
@@ -824,77 +671,51 @@ def manage_tickets_page():
             else:
                 st.warning("Ticket not found in database")
     
+    # Tab 2: Bulk Operations
     with tab2:
         st.subheader("Bulk Operations")
-        bulk_tickets = st.text_area(
-            "Enter Ticket Numbers (one per line)", 
-            help="Enter one ticket number per line"
-        )
-        bulk_action = st.selectbox(
-            "Action", 
-            ["Update Status", "Change Price", "Add Subtickets"]
-        )
-        
+        bulk_tickets = st.text_area("Enter Ticket Numbers (one per line)", help="Enter one ticket number per line")
+        bulk_action = st.selectbox("Action", ["Update Status", "Change Price", "Add Subtickets"])
         if bulk_tickets:
             ticket_list = [t.strip() for t in bulk_tickets.split('\n') if t.strip()]
             found_tickets = []
             missing_tickets = []
-            
-            # Check existence
             for t in ticket_list:
                 cursor.execute("SELECT 1 FROM tickets WHERE ticket_number = ?", (t,))
                 if cursor.fetchone():
                     found_tickets.append(t)
                 else:
                     missing_tickets.append(t)
-            
             if missing_tickets:
-                st.warning(f"{len(missing_tickets)} tickets not found: {', '.join(missing_tickets[:3])}{'...' if len(missing_tickets) >3 else ''}")
-            
+                st.warning(f"{len(missing_tickets)} tickets not found: {', '.join(missing_tickets[:3])}{'...' if len(missing_tickets) > 3 else ''}")
             if found_tickets:
                 st.success(f"{len(found_tickets)} valid tickets found")
-                
                 if bulk_action == "Update Status":
                     new_status = st.selectbox("New Status", ["Intake", "Return", "Delivered"])
                     if st.button("Update Status for All Found Tickets"):
                         for t in found_tickets:
-                            cursor.execute(
-                                "UPDATE tickets SET status = ? WHERE ticket_number = ?",
-                                (new_status, t)
-                            )
+                            cursor.execute("UPDATE tickets SET status = ? WHERE ticket_number = ?", (new_status, t))
                         conn.commit()
                         st.success(f"Updated {len(found_tickets)} tickets to {new_status} status")
-                
                 elif bulk_action == "Change Price":
                     new_price = st.number_input("New Price", min_value=0.0, value=st.session_state.ticket_price)
                     if st.button("Update Price for All Found Tickets"):
                         for t in found_tickets:
-                            cursor.execute(
-                                "UPDATE tickets SET pay = ? WHERE ticket_number = ?",
-                                (new_price, t)
-                            )
+                            cursor.execute("UPDATE tickets SET pay = ? WHERE ticket_number = ?", (new_price, t))
                         conn.commit()
                         st.success(f"Updated pricing for {len(found_tickets)} tickets")
-                
                 elif bulk_action == "Add Subtickets":
                     add_count = st.number_input("Additional Subtickets", min_value=1, value=1)
                     if st.button("Add Subtickets to All Found Tickets"):
                         for t in found_tickets:
-                            cursor.execute(
-                                "UPDATE tickets SET num_sub_tickets = num_sub_tickets + ? WHERE ticket_number = ?",
-                                (add_count, t)
-                            )
+                            cursor.execute("UPDATE tickets SET num_sub_tickets = num_sub_tickets + ? WHERE ticket_number = ?", (add_count, t))
                         conn.commit()
                         st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
     
+    # Tab 3: Delete Tickets
     with tab3:
         st.subheader("Ticket Deletion")
-        delete_option = st.radio(
-            "Deletion Method", 
-            ["Single Ticket", "By Batch", "By Date Range"]
-        )
-        
-        # Proper indentation for all conditionals
+        delete_option = st.radio("Deletion Method", ["Single Ticket", "By Batch", "By Date Range"])
         if delete_option == "Single Ticket":
             del_ticket = st.text_input("Enter Ticket Number to Delete")
             if del_ticket and st.button("Delete Ticket"):
@@ -904,31 +725,25 @@ def manage_tickets_page():
                     st.success("Ticket deleted successfully")
                 else:
                     st.error("Ticket not found")
-        
         elif delete_option == "By Batch":
             batch_name = st.text_input("Enter Batch Name to Delete")
             if batch_name and st.button("Delete Entire Batch"):
                 cursor.execute("DELETE FROM tickets WHERE batch_name = ?", (batch_name.strip(),))
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from batch {batch_name}")
-        
         elif delete_option == "By Date Range":
             col1, col2 = st.columns(2)
             with col1:
                 start_date = st.date_input("Start Date")
             with col2:
                 end_date = st.date_input("End Date")
-            
             if st.button("Delete Tickets in Date Range"):
-                cursor.execute(
-                    "DELETE FROM tickets WHERE date BETWEEN ? AND ?",
-                    (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-                )
+                cursor.execute("DELETE FROM tickets WHERE date BETWEEN ? AND ?", 
+                               (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
     
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 # -----------------------------------------------------------
 # Page: Income
@@ -943,15 +758,12 @@ def income_page():
         st.write("Track and analyze your earnings from delivered tickets")
     
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
-    
-    # Date range selector
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     with col2:
         end_date = st.date_input("End Date", datetime.date.today())
     
-    # Query for delivered tickets in date range
     query = """
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
@@ -960,11 +772,9 @@ def income_page():
         GROUP BY date
         ORDER BY date DESC
     """
-    params = [start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]
-    df_income = pd.read_sql(query, conn, params=params)
+    df_income = pd.read_sql(query, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
     
     if not df_income.empty:
-        # Display earnings chart
         fig = px.area(
             df_income,
             x="date",
@@ -974,12 +784,8 @@ def income_page():
             color_discrete_sequence=["#4CAF50"]
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Show data table
         st.subheader("Detailed Earnings")
         st.dataframe(df_income, use_container_width=True)
-        
-        # Calculate total earnings
         total_earnings = df_income["day_earnings"].sum()
         st.metric("Total Earnings in Period", f"${total_earnings:,.2f}")
     else:
@@ -1000,32 +806,19 @@ def settings_page():
         st.write("Configure application preferences and defaults")
     
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
-    
     tab1, tab2, tab3 = st.tabs(["💰 Pricing", "🏢 Company", "🎨 Appearance"])
     
     with tab1:
         st.subheader("Ticket Pricing")
-        new_price = st.number_input(
-            "Price per Sub-Ticket (USD)", 
-            min_value=0.0, 
-            value=st.session_state.ticket_price, 
-            step=0.5
-        )
+        new_price = st.number_input("Price per Sub-Ticket (USD)", min_value=0.0, value=st.session_state.ticket_price, step=0.5)
         if st.button("Update Pricing"):
             st.session_state.ticket_price = new_price
             st.success("Pricing updated successfully!")
     
     with tab2:
         st.subheader("Company Information")
-        company_name = st.text_input(
-            "Company Name", 
-            value=st.session_state.company_name
-        )
-        batch_prefix = st.text_input(
-            "Batch Prefix", 
-            value=st.session_state.batch_prefix
-        )
-        
+        company_name = st.text_input("Company Name", value=st.session_state.company_name)
+        batch_prefix = st.text_input("Batch Prefix", value=st.session_state.batch_prefix)
         if st.button("Update Company Info"):
             st.session_state.company_name = company_name.strip()
             st.session_state.batch_prefix = batch_prefix.strip()
@@ -1033,15 +826,11 @@ def settings_page():
     
     with tab3:
         st.subheader("Appearance Settings")
-        dark_mode = st.checkbox(
-            "Enable Dark Mode", 
-            value=st.session_state.dark_mode
-        )
+        dark_mode = st.checkbox("Enable Dark Mode", value=st.session_state.dark_mode)
         if dark_mode != st.session_state.dark_mode:
             st.session_state.dark_mode = dark_mode
             load_css()
             st.experimental_rerun()
-        
         st.color_picker("Primary Color", value="#4CAF50", key="primary_color")
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1050,6 +839,8 @@ def settings_page():
 # Main App Flow
 # -----------------------------------------------------------
 def main():
+    render_navbar()
+    
     pages = {
         "Dashboard": dashboard_page,
         "Add Tickets": add_tickets_page,
@@ -1059,14 +850,10 @@ def main():
         "Settings": settings_page
     }
     
-    # Render navigation and get active page
-    active_page = render_navbar("Dashboard")
-    
-    # Execute the selected page
+    active_page = st.session_state.active_page
     if active_page in pages:
         pages[active_page]()
     
-    # Footer
     st.markdown(
         f"""
         <div class="footer">
