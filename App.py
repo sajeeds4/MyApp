@@ -267,20 +267,16 @@ def render_navbar():
         <div class="nav-buttons">
     """, unsafe_allow_html=True)
     
-    # Create a button for each page
     cols = st.columns(len(pages))
     for i, (page, icon) in enumerate(pages.items()):
         if cols[i].button(f"{icon} {page}"):
             st.session_state.active_page = page
-            st.experimental_rerun()
-    
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 # -----------------------------------------------------------
 # Page: Dashboard
 # -----------------------------------------------------------
 def dashboard_page():
-    # Animations in columns
     col_anim1, col_anim2 = st.columns([1, 5])
     with col_anim1:
         if animations["dashboard"]:
@@ -289,7 +285,6 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
-    # Calculate Key Metrics
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     
@@ -302,7 +297,6 @@ def dashboard_page():
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
     
-    # Key Metrics Row
     st.markdown(
         f"""
         <div class="metric-row">
@@ -326,10 +320,7 @@ def dashboard_page():
         </div>
         """, unsafe_allow_html=True)
     
-    # Visualization Container
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
-    
-    # Date range selector
     st.subheader("📅 Date Range Analysis")
     col1, col2 = st.columns(2)
     with col1:
@@ -337,7 +328,6 @@ def dashboard_page():
     with col2:
         end_date = st.date_input("End Date", datetime.date.today())
     
-    # Daily Resolution Chart Query
     query = """
     SELECT date, 
            SUM(CASE WHEN status='Delivered' THEN num_sub_tickets ELSE 0 END) as delivered,
@@ -353,8 +343,6 @@ def dashboard_page():
     
     if not df_daily.empty:
         df_daily['date'] = pd.to_datetime(df_daily['date'])
-        
-        # Plotly interactive chart
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=df_daily['date'], 
@@ -381,7 +369,6 @@ def dashboard_page():
             line=dict(color='#4CAF50', width=3, dash='dot'),
             marker=dict(size=8)
         ))
-        
         fig.update_layout(
             title='Daily Ticket Activity',
             xaxis_title='Date',
@@ -391,12 +378,9 @@ def dashboard_page():
             template='plotly_white',
             hovermode='x unified'
         )
-        
         st.plotly_chart(fig, use_container_width=True)
         
-        # Earnings Chart
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
-        
         fig2 = px.bar(
             df_daily, 
             x='date', 
@@ -412,7 +396,6 @@ def dashboard_page():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Performance Stats
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     st.subheader("📈 Performance Statistics")
     
@@ -461,13 +444,9 @@ def dashboard_page():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Recent Activity
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     st.subheader("⏱️ Recent Activity")
-    df_recent = pd.read_sql(
-        "SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", 
-        conn
-    )
+    df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
         st.dataframe(df_recent, use_container_width=True)
     else:
@@ -487,7 +466,6 @@ def add_tickets_page():
         st.write(f"Current ticket price: ${st.session_state.ticket_price:.2f} per sub-ticket")
     
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
-    
     col1, col2 = st.columns([2, 1])
     with col1:
         batch_name = st.text_input("Batch Name (optional)", placeholder="Enter a meaningful batch name")
@@ -539,7 +517,6 @@ def add_tickets_page():
             else:
                 st.warning("Please enter ticket number(s).")
     else:
-        # For Large Ticket Input
         col_large1, col_large2 = st.columns(2)
         with col_large1:
             large_ticket = st.text_input("Large Ticket Number", placeholder="Enter the main ticket number")
@@ -566,8 +543,6 @@ def add_tickets_page():
                 st.warning("Please enter a valid ticket number.")
     
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Recent Additions
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     st.subheader("Recent Additions")
     df_recent = pd.read_sql("SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", conn)
@@ -647,7 +622,6 @@ def manage_tickets_page():
     st.markdown('<div class="content-container">', unsafe_allow_html=True)
     tab1, tab2, tab3 = st.tabs(["🔍 Search & Edit", "⚡ Bulk Operations", "🗑️ Delete Tickets"])
     
-    # Tab 1: Search & Edit
     with tab1:
         st.subheader("Individual Ticket Management")
         ticket_number = st.text_input("Enter Ticket Number to Manage")
@@ -671,7 +645,6 @@ def manage_tickets_page():
             else:
                 st.warning("Ticket not found in database")
     
-    # Tab 2: Bulk Operations
     with tab2:
         st.subheader("Bulk Operations")
         bulk_tickets = st.text_area("Enter Ticket Numbers (one per line)", help="Enter one ticket number per line")
@@ -712,7 +685,6 @@ def manage_tickets_page():
                         conn.commit()
                         st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
     
-    # Tab 3: Delete Tickets
     with tab3:
         st.subheader("Ticket Deletion")
         delete_option = st.radio("Deletion Method", ["Single Ticket", "By Batch", "By Date Range"])
