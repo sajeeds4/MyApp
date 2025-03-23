@@ -129,7 +129,7 @@ def ui_status_from_db(status_db: str) -> str:
     return status_db
 
 # -----------------------------------------------------------
-# Navigation (Add "Batches" page to navigation)
+# Navigation (Added "Batches" page)
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -155,7 +155,6 @@ def render_navbar():
 # Dashboard Page
 # -----------------------------------------------------------
 def dashboard_page():
-    # Top animation and title
     col_anim, col_title = st.columns([1, 5])
     with col_anim:
         if animations["dashboard"]:
@@ -164,7 +163,7 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
-    # Totals are computed by summing num_sub_tickets
+    # Sum num_sub_tickets per status so both single and large tickets are counted.
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
@@ -177,14 +176,12 @@ def dashboard_page():
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display key metrics (Overall, Intake, Ready, Delivered)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
     col3.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
     col4.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
 
-    # Date Range Analysis
     st.subheader("📅 Date Range Analysis")
     col_date1, col_date2 = st.columns(2)
     with col_date1:
@@ -229,7 +226,6 @@ def dashboard_page():
     else:
         st.info("No data available for selected date range")
     
-    # Performance Statistics: Gauge and Pie Chart
     st.subheader("📈 Performance Statistics")
     col_stat1, col_stat2 = st.columns(2)
     with col_stat1:
@@ -264,7 +260,6 @@ def dashboard_page():
         else:
             st.info("No status data available")
     
-    # Recent Activity Table
     st.subheader("⏱️ Recent Activity")
     df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
@@ -557,40 +552,52 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Batches Page (New Page for batch tiles)
+# Batches Page (Tiles with Editing & Color-Coded)
 # -----------------------------------------------------------
-def display_batch_tile(batch_name, total_tickets, status):
-    st.markdown(f"""
-    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-      <h4>{batch_name}</h4>
-      <p>Total Tickets: {total_tickets}</p>
-      <p>Status: {status}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
-    st.write("View batches as tiles by status.")
+    st.write("View batches as colored tiles. Click a tile to expand and update its status.")
     # Aggregate batches by batch_name
     df_batches = pd.read_sql(
         "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
         conn
     )
-    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
+    # Define color mapping (background color) for statuses
+    status_colors = {
+        "Intake": "#C8E6C9",            # light green
+        "Ready to Deliver": "#FFE0B2",   # light orange
+        "Delivered": "#BBDEFB",         # light blue
+        "Mixed": "#EEEEEE"              # light grey
+    }
+    
+    # Four tabs: Intake Batches, Ready to Deliver Batches, Delivered Batches, All Batches
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
     
     def display_batches(df):
-        # Display batches in a grid of 3 columns
         cols = st.columns(3)
         for idx, row in df.iterrows():
-            # If more than one status exists, mark as "Mixed"
-            status_str = row["statuses"]
-            if "," in status_str:
+            # Determine display status
+            statuses = row["statuses"]
+            if "," in statuses:
                 display_status = "Mixed"
             else:
-                display_status = ui_status_from_db(status_str)
+                display_status = ui_status_from_db(statuses)
+            bg_color = status_colors.get(display_status, "#EEEEEE")
             with cols[idx % 3]:
-                display_batch_tile(row["batch_name"], row["total_tickets"], display_status)
+                with st.expander(f"{row['batch_name']}"):
+                    st.markdown(f"""
+                    <div style="border: 2px solid {bg_color}; border-radius: 8px; padding: 15px; text-align: center; background-color: {bg_color};">
+                        <h4>{row['batch_name']}</h4>
+                        <p>Total Tickets: {row['total_tickets']}</p>
+                        <p>Status: {display_status}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    new_status_ui = st.selectbox("New Status", ["Intake", "Ready to Deliver", "Delivered"], key=f"batch_{row['batch_name']}")
+                    if st.button("Update Batch", key=f"update_{row['batch_name']}"):
+                        db_status = db_status_from_ui(new_status_ui)
+                        cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, row["batch_name"]))
+                        conn.commit()
+                        st.success(f"Batch {row['batch_name']} updated to {new_status_ui}!")
     
     with tab_intake:
         df_intake = df_batches[df_batches["statuses"] == "Intake"]
@@ -602,6 +609,8 @@ def batch_view_page():
     with tab_ready:
         df_ready = df_batches[df_batches["statuses"] == "Return"]
         if not df_ready.empty:
+            # Convert "Return" to UI label
+            df_ready["statuses"] = df_ready["statuses"].apply(lambda x: "Ready to Deliver" if x=="Return" else x)
             display_batches(df_ready)
         else:
             st.info("No Ready to Deliver batches found.")
@@ -615,6 +624,8 @@ def batch_view_page():
     
     with tab_all:
         if not df_batches.empty:
+            # For batches with mixed statuses, show as "Mixed"
+            df_batches["statuses"] = df_batches["statuses"].apply(lambda x: "Mixed" if "," in x else ui_status_from_db(x))
             display_batches(df_batches)
         else:
             st.info("No batches found.")
