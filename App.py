@@ -129,7 +129,7 @@ def ui_status_from_db(status_db: str) -> str:
     return status_db
 
 # -----------------------------------------------------------
-# Navigation
+# Navigation (Add "Batches" page to navigation)
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -138,6 +138,7 @@ def render_navbar():
         "View Tickets": "👁️",
         "Manage Tickets": "🔄",
         "Income": "💰",
+        "Batches": "🗂️",
         "Settings": "⚙️"
     }
     st.markdown(f"""
@@ -163,21 +164,20 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
-    # For every metric, we sum num_sub_tickets so that both single tickets (1) and large tickets (>1) are counted.
+    # Totals are computed by summing num_sub_tickets
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
     total_ready = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Delivered'")
     total_delivered = cursor.fetchone()[0] or 0
-    # Overall total: sum of all tickets (single + large)
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets")
     total_overall = cursor.fetchone()[0] or 0
 
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display metrics using st.metric (4 columns)
+    # Display key metrics (Overall, Intake, Ready, Delivered)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
@@ -205,7 +205,6 @@ def dashboard_page():
     df_daily = pd.read_sql(query, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
     if not df_daily.empty:
         df_daily['date'] = pd.to_datetime(df_daily['date'])
-        # Ticket activity chart (using SUM(num_sub_tickets))
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
                                    mode='lines+markers', name='Delivered',
@@ -220,7 +219,6 @@ def dashboard_page():
                           hovermode='x unified', template='plotly_white', height=500)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Daily Earnings Chart (summing earnings based on num_sub_tickets)
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
         fig2 = px.bar(df_daily, x='date', y='delivered_value',
                       title="Daily Delivery Earnings",
@@ -559,6 +557,69 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
+# Batches Page (New Page for batch tiles)
+# -----------------------------------------------------------
+def display_batch_tile(batch_name, total_tickets, status):
+    st.markdown(f"""
+    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
+      <h4>{batch_name}</h4>
+      <p>Total Tickets: {total_tickets}</p>
+      <p>Status: {status}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def batch_view_page():
+    st.markdown("## 🗂️ Batch View")
+    st.write("View batches as tiles by status.")
+    # Aggregate batches by batch_name
+    df_batches = pd.read_sql(
+        "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
+        conn
+    )
+    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
+    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
+    
+    def display_batches(df):
+        # Display batches in a grid of 3 columns
+        cols = st.columns(3)
+        for idx, row in df.iterrows():
+            # If more than one status exists, mark as "Mixed"
+            status_str = row["statuses"]
+            if "," in status_str:
+                display_status = "Mixed"
+            else:
+                display_status = ui_status_from_db(status_str)
+            with cols[idx % 3]:
+                display_batch_tile(row["batch_name"], row["total_tickets"], display_status)
+    
+    with tab_intake:
+        df_intake = df_batches[df_batches["statuses"] == "Intake"]
+        if not df_intake.empty:
+            display_batches(df_intake)
+        else:
+            st.info("No Intake batches found.")
+    
+    with tab_ready:
+        df_ready = df_batches[df_batches["statuses"] == "Return"]
+        if not df_ready.empty:
+            display_batches(df_ready)
+        else:
+            st.info("No Ready to Deliver batches found.")
+    
+    with tab_delivered:
+        df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
+        if not df_delivered.empty:
+            display_batches(df_delivered)
+        else:
+            st.info("No Delivered batches found.")
+    
+    with tab_all:
+        if not df_batches.empty:
+            display_batches(df_batches)
+        else:
+            st.info("No batches found.")
+
+# -----------------------------------------------------------
 # Income Page
 # -----------------------------------------------------------
 def income_page():
@@ -649,6 +710,7 @@ def main():
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
         "Income": income_page,
+        "Batches": batch_view_page,
         "Settings": settings_page
     }
     active_page = st.session_state.active_page
