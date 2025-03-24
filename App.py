@@ -7,9 +7,6 @@ from streamlit_lottie import st_lottie
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Import extension page from extension.py
-from extension import extension_page
-
 # -----------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------
@@ -75,7 +72,7 @@ def load_lottieurl(url: str):
         if r.status_code != 200:
             return None
         return r.json()
-    except Exception as e:
+    except:
         return None
 
 animations = {
@@ -104,6 +101,7 @@ def setup_database():
         batch_name TEXT,
         ticket_number TEXT UNIQUE,
         num_sub_tickets INTEGER DEFAULT 1,
+        -- In the DB, "Return" means the ticket is ready to deliver.
         status TEXT DEFAULT 'Intake',
         pay REAL DEFAULT 5.5,
         comments TEXT DEFAULT '',
@@ -121,17 +119,19 @@ cursor = conn.cursor()
 # Utility: Status Mapping (DB ↔ UI)
 # -----------------------------------------------------------
 def db_status_from_ui(status_ui: str) -> str:
+    """Convert the user-facing status to the DB value."""
     if status_ui == "Ready to Deliver":
         return "Return"
     return status_ui
 
 def ui_status_from_db(status_db: str) -> str:
+    """Convert the DB status to the user-facing label."""
     if status_db == "Return":
         return "Ready to Deliver"
     return status_db
 
 # -----------------------------------------------------------
-# Navigation (Add pages to navigation)
+# Navigation (Add "Batches" page to navigation)
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -141,8 +141,7 @@ def render_navbar():
         "Manage Tickets": "🔄",
         "Income": "💰",
         "Batches": "🗂️",
-        "Settings": "⚙️",
-        "Extension": "🔧"
+        "Settings": "⚙️"
     }
     st.markdown(f"""
     <div style="padding: 10px; background-color: #ffffff; border-radius: 8px; margin-bottom: 20px;">
@@ -166,6 +165,7 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
+    # Totals are computed by summing num_sub_tickets
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
@@ -554,7 +554,7 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Batches Page (with Edit Status button using unique keys)
+# Batches Page (Updated to include Edit Status button with unique keys)
 # -----------------------------------------------------------
 def display_batch_tile(batch_name, total_tickets, status, unique_key):
     st.markdown(f"""
@@ -570,17 +570,22 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key):
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' on any batch to update its status.")
+    # Aggregate batches by batch_name
     df_batches = pd.read_sql(
         "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
         conn
     )
+    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
     
     def display_batches(df, tab_key):
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
-            display_status = "Mixed" if "," in status_str else ui_status_from_db(status_str)
+            if "," in status_str:
+                display_status = "Mixed"
+            else:
+                display_status = ui_status_from_db(status_str)
             unique_key = f"edit_{row['batch_name']}_{idx}_{tab_key}"
             with cols[idx % 3]:
                 display_batch_tile(row["batch_name"], row["total_tickets"], display_status, unique_key)
@@ -612,6 +617,7 @@ def batch_view_page():
         else:
             st.info("No batches found.")
     
+    # --- Batch Status Update Form ---
     if st.session_state.edit_batch:
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -625,6 +631,8 @@ def batch_view_page():
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
                 st.session_state.edit_batch = None
+                # Optionally, you can force a rerun to update the view:
+                # st.experimental_rerun()
 
 # -----------------------------------------------------------
 # Income Page
@@ -718,8 +726,7 @@ def main():
         "Manage Tickets": manage_tickets_page,
         "Income": income_page,
         "Batches": batch_view_page,
-        "Settings": settings_page,
-        "Extension": extension_page,  # Imported extension page
+        "Settings": settings_page
     }
     active_page = st.session_state.active_page
     if active_page in pages:
