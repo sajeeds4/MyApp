@@ -8,3 +8,5 @@ numpy
 python-dotenv
 psycopg2-binary
 socket
+python-dotenv
+psycopg2-binary
