@@ -1,25 +1,31 @@
 # extension.py
-"""
-Extension module for additional functionalities in the Ticket Management System.
-Add your custom functions, classes, and code below.
-"""
+# At the top of your App.py file, add:
+from extension import extension_page
 
-import streamlit as st
-import sqlite3
-import pandas as pd
-import datetime
+# ...
 
-def extension_page():
-    """
-    Renders a placeholder extension page.
-    Replace this content with your custom code.
-    """
-    st.markdown("## 🔧 Extension Page")
-    st.write("This is a placeholder page for your custom extensions.")
-    st.info("Add your custom code here. For example, you can define new functionalities, charts, or database operations.")
+def main():
+    render_navbar()
+    pages = {
+        "Dashboard": dashboard_page,
+        "Add Tickets": add_tickets_page,
+        "View Tickets": view_tickets_page,
+        "Manage Tickets": manage_tickets_page,
+        "Income": income_page,
+        "Batches": batch_view_page,
+        "Settings": settings_page,
+        "Extension": extension_page,  # Added extension page
+    }
+    active_page = st.session_state.active_page
+    if active_page in pages:
+        pages[active_page]()
     
-    # Example placeholder: display the current date and time
-    now = datetime.datetime.now()
-    st.write(f"Current Date & Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Add your custom functions or logic below.
+    st.markdown(f"""
+    <div style="text-align:center; padding: 15px; font-size: 0.8rem; border-top: 1px solid #ccc; margin-top: 30px;">
+        <p>{st.session_state.company_name} Ticket System • {datetime.datetime.now().year}</p>
+        <p>Powered by Streamlit • v1.0</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
