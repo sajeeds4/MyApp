@@ -48,6 +48,7 @@ def connect_to_supabase():
             port=SUPABASE_PORT,
             dbname=SUPABASE_DBNAME
         )
+        st.write("Connected to Supabase via IPv4:", ipv4_host)
         return connection
     except Exception as e:
         st.error(f"Failed to connect to Supabase: {e}")
@@ -56,10 +57,10 @@ def connect_to_supabase():
 def migrate_data_to_supabase():
     """
     Migrates all records from the local SQLite 'tickets' table to the Supabase 'tickets' table.
-    The first column (id) from SQLite is skipped, and duplicate ticket numbers are ignored.
+    The first column (id) is skipped, and duplicate ticket numbers are ignored.
     """
     try:
-        # Connect to the local SQLite database and fetch all records from 'tickets'
+        # Connect to local SQLite and fetch all records from 'tickets'
         sqlite_conn = sqlite3.connect("ticket_management.db")
         sqlite_cursor = sqlite_conn.cursor()
         sqlite_cursor.execute("SELECT * FROM tickets")
@@ -74,7 +75,7 @@ def migrate_data_to_supabase():
         # Prepare data for insertion by skipping the 'id' column (assumed to be first)
         values_to_insert = [row[1:] for row in rows]
 
-        # Connect to Supabase Postgres database
+        # Connect to Supabase
         supabase_conn = connect_to_supabase()
         if supabase_conn is None:
             return
