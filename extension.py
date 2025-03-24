@@ -6,16 +6,16 @@ import datetime
 def run_query(query: str):
     """
     Executes a SQL query against the local SQLite database.
-    - For SELECT queries, it returns a DataFrame with the results.
-    - For non-SELECT queries (UPDATE, INSERT, etc.), it commits changes and returns a message
-      including the number of rows affected.
+    For SELECT queries, it returns a DataFrame with the results.
+    For non-SELECT queries, it commits changes, prints the number of rows affected,
+    and then forces a rerun of the app so that updates become visible.
     """
     try:
         with sqlite3.connect("ticket_management.db") as conn:
             cursor = conn.cursor()
             st.write("Executing query:", query)
             cursor.execute(query)
-            
+            # Check if query is a SELECT query
             if query.strip().lower().startswith("select"):
                 data = cursor.fetchall()
                 columns = [desc[0] for desc in cursor.description]
@@ -26,6 +26,9 @@ def run_query(query: str):
                 conn.commit()
                 affected = cursor.rowcount
                 st.write("Query committed successfully. Rows affected:", affected)
+                st.success(f"Query executed successfully. Rows affected: {affected}")
+                # Force a refresh so that updated data is immediately visible
+                st.experimental_rerun()
                 return None, f"Query executed successfully. Rows affected: {affected}"
     except Exception as e:
         st.error(f"Error executing query: {e}")
@@ -34,10 +37,13 @@ def run_query(query: str):
 def extension_page():
     st.markdown("## 🔍 SQL Query Console")
     st.write("Run custom SQL queries on your local SQLite database (ticket_management.db).")
-    st.warning("Use caution with UPDATE, DELETE, or DROP queries; these can permanently modify your data.")
+    st.warning("Use caution with UPDATE, DELETE, or DROP queries as these will permanently modify your data.")
     
-    query = st.text_area("Enter your SQL query below:", height=150, 
-                         placeholder="e.g., UPDATE tickets SET status = 'Delivered' WHERE ticket_number = 'T123';")
+    query = st.text_area(
+        "Enter your SQL query below:",
+        height=150,
+        placeholder="e.g., UPDATE tickets SET status = 'Delivered' WHERE ticket_number = 'T123';"
+    )
     
     if st.button("Execute Query"):
         if not query.strip():
@@ -49,6 +55,6 @@ def extension_page():
                 st.dataframe(result)
             elif message:
                 st.info(message)
-
+    
     st.markdown("### Last Query Run")
     st.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
