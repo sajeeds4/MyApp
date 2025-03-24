@@ -30,6 +30,8 @@ if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "active_page" not in st.session_state:
     st.session_state.active_page = "Dashboard"  # default page
+if "edit_batch" not in st.session_state:
+    st.session_state.edit_batch = None
 
 # -----------------------------------------------------------
 # Styling (Basic CSS to hide branding and set background)
@@ -155,7 +157,6 @@ def render_navbar():
 # Dashboard Page
 # -----------------------------------------------------------
 def dashboard_page():
-    # Top animation and title
     col_anim, col_title = st.columns([1, 5])
     with col_anim:
         if animations["dashboard"]:
@@ -177,14 +178,12 @@ def dashboard_page():
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display key metrics (Overall, Intake, Ready, Delivered)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
     col3.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
     col4.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
 
-    # Date Range Analysis
     st.subheader("📅 Date Range Analysis")
     col_date1, col_date2 = st.columns(2)
     with col_date1:
@@ -229,7 +228,6 @@ def dashboard_page():
     else:
         st.info("No data available for selected date range")
     
-    # Performance Statistics: Gauge and Pie Chart
     st.subheader("📈 Performance Statistics")
     col_stat1, col_stat2 = st.columns(2)
     with col_stat1:
@@ -264,7 +262,6 @@ def dashboard_page():
         else:
             st.info("No status data available")
     
-    # Recent Activity Table
     st.subheader("⏱️ Recent Activity")
     df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
@@ -557,20 +554,18 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Batches Page (New Page for batch tiles)
+# Batches Page (Updated to include Edit Status button with unique keys)
 # -----------------------------------------------------------
-def display_batch_tile(batch_name, total_tickets, status):
-    with st.container():
-        st.markdown(f"""
-        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-          <h4>{batch_name}</h4>
-          <p>Total Tickets: {total_tickets}</p>
-          <p>Status: {status}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        # "Edit Status" button for the batch tile
-        if st.button("Edit Status", key=f"edit_{batch_name}"):
-            st.session_state.edit_batch = batch_name
+def display_batch_tile(batch_name, total_tickets, status, unique_key):
+    st.markdown(f"""
+    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
+      <h4>{batch_name}</h4>
+      <p>Total Tickets: {total_tickets}</p>
+      <p>Status: {status}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("Edit Status", key=unique_key):
+        st.session_state.edit_batch = batch_name
 
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
@@ -581,12 +576,9 @@ def batch_view_page():
         conn
     )
     # Create four tabs: Intake, Ready to Deliver, Delivered, and All
-    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
-        "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
-    ])
+    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
     
-    def display_batches(df):
-        # Display batches in a grid of 3 columns
+    def display_batches(df, tab_key):
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
@@ -594,42 +586,42 @@ def batch_view_page():
                 display_status = "Mixed"
             else:
                 display_status = ui_status_from_db(status_str)
+            unique_key = f"edit_{row['batch_name']}_{idx}_{tab_key}"
             with cols[idx % 3]:
-                display_batch_tile(row["batch_name"], row["total_tickets"], display_status)
+                display_batch_tile(row["batch_name"], row["total_tickets"], display_status, unique_key)
     
     with tab_intake:
         df_intake = df_batches[df_batches["statuses"] == "Intake"]
         if not df_intake.empty:
-            display_batches(df_intake)
+            display_batches(df_intake, "intake")
         else:
             st.info("No Intake batches found.")
     
     with tab_ready:
         df_ready = df_batches[df_batches["statuses"] == "Return"]
         if not df_ready.empty:
-            display_batches(df_ready)
+            display_batches(df_ready, "ready")
         else:
             st.info("No Ready to Deliver batches found.")
     
     with tab_delivered:
         df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
         if not df_delivered.empty:
-            display_batches(df_delivered)
+            display_batches(df_delivered, "delivered")
         else:
             st.info("No Delivered batches found.")
     
     with tab_all:
         if not df_batches.empty:
-            display_batches(df_batches)
+            display_batches(df_batches, "all")
         else:
             st.info("No batches found.")
     
     # --- Batch Status Update Form ---
-    if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
+    if st.session_state.edit_batch:
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
         st.write(f"Updating status for batch: **{batch_to_edit}**")
-        # Use a form to update the batch status
         with st.form("update_batch_status_form"):
             new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
             submitted = st.form_submit_button("Update Batch Status")
@@ -638,10 +630,9 @@ def batch_view_page():
                 cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None  # Clear the edit flag
+                st.session_state.edit_batch = None
                 # Optionally, you can force a rerun to update the view:
                 # st.experimental_rerun()
-
 
 # -----------------------------------------------------------
 # Income Page
