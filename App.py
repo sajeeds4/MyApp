@@ -821,31 +821,35 @@ def view_tickets_page():
             st.info("No delivered tickets found")
 
 # -----------------------------------------------------------
-# Manage Tickets Page
+# Manage Tickets Page (Corrected Form Declaration)
 # -----------------------------------------------------------
 def manage_tickets_page():
-    col_anim, col_title = st.columns([1, 5])
-    with col_anim:
-        if animations["settings"]:
-            st_lottie(animations["settings"], height=150, key="manage_anim")
-    with col_title:
-        st.markdown("## 🔄 Manage Tickets")
-        st.write("Advanced ticket management operations")
-    
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🔍 Search & Edit",
-        "⚡ Bulk Operations",
-        "🗑️ Delete Tickets",
-        "📦 By Batch"
-    ])
+    # ... [previous code] ...
     
     # Tab 1: Search & Edit
     with tab1:
         st.subheader("Individual Ticket Management")
         ticket_number = st.text_input("Enter Ticket Number to Manage")
         if ticket_number:
-            ticket_data = pd.read_sql("SELECT * FROM tickets WHERE ticket_number = ?", conn,(Due to technical issues, the search service is temporarily unavailable.)
-
+            ticket_data = pd.read_sql("SELECT * FROM tickets WHERE ticket_number = ?", conn, params=(ticket_number.strip(),))
+            if not ticket_data.empty:
+                current_status_ui = ui_status_from_db(ticket_data.iloc[0]['status'])
+                # CORRECTED FORM DECLARATION
+                with st.form("edit_ticket_form"):  # Fixed string termination
+                    new_status_ui = st.selectbox("Status", ["Intake", "Ready to Deliver", "Delivered"],
+                                                 index=["Intake", "Ready to Deliver", "Delivered"].index(current_status_ui))
+                    new_subtickets = st.number_input("Sub-Tickets", min_value=1, value=int(ticket_data.iloc[0]['num_sub_tickets']))
+                    new_price = st.number_input("Ticket Price", min_value=0.0, value=float(ticket_data.iloc[0]['pay']), step=0.5)
+                    if st.form_submit_button("Update Ticket"):
+                        db_status = db_status_from_ui(new_status_ui)
+                        cursor.execute("UPDATE tickets SET status = ?, num_sub_tickets = ?, pay = ? WHERE ticket_number = ?",
+                                       (db_status, new_subtickets, new_price, ticket_number.strip()))
+                        conn.commit()
+                        st.success("Ticket updated successfully!")
+                        if animations["success"]:
+                            st_lottie(animations["success"], height=80)
+            else:
+                st.warning("Ticket not found in database")
 Here's the complete fixed code with working SQL query functionality:
 
 ```python
