@@ -427,11 +427,13 @@ def manage_tickets_page():
         st.write("Advanced ticket management operations")
     
     st.markdown("---")
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # Added an extra tab for SQL Query insert/update
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Search & Edit",
         "⚡ Bulk Operations",
         "🗑️ Delete Tickets",
-        "📦 By Batch"
+        "📦 By Batch",
+        "💻 SQL Query"
     ])
     
     # Tab 1: Search & Edit (Individual Ticket)
@@ -553,6 +555,24 @@ def manage_tickets_page():
                     st.dataframe(df_batch, use_container_width=True)
         else:
             st.info("No batches found in the database.")
+    
+    # Tab 5: Custom SQL Query Insert/Update
+    with tab5:
+        st.subheader("Custom SQL Query Insert/Update")
+        st.write("Enter a valid SQL query (only INSERT or UPDATE queries are allowed) to update the tickets table. "
+                 "This will modify ticket records and changes will reflect in the Intake, Ready to Deliver, and Delivered views.")
+        sql_query = st.text_area("SQL Query", height=150,
+                                 placeholder="e.g., INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay) VALUES ('2025-03-24', '12:34:56', 'Batch-100', 'TICKET123', 1, 'Intake', 5.5)")
+        if st.button("Execute SQL Query"):
+            if sql_query.strip():
+                try:
+                    cursor.execute(sql_query)
+                    conn.commit()
+                    st.success(f"Query executed successfully. Rows affected: {cursor.rowcount}")
+                except Exception as e:
+                    st.error(f"Error executing query: {e}")
+            else:
+                st.warning("Please enter a SQL query.")
     
     st.markdown("---")
 
