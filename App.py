@@ -124,19 +124,54 @@ def ui_status_from_db(status_db: str) -> str:
     return status_db
 
 # -----------------------------------------------------------
-# SQL Console Page (Integrated)
+# SQL Query Runner (Integrated in SQL Console Page)
+# -----------------------------------------------------------
+def run_query(query: str):
+    """
+    Executes a SQL query against the local SQLite database.
+    For SELECT queries, returns a DataFrame.
+    For non-SELECT queries, commits changes and returns a message
+    indicating the number of rows affected.
+    """
+    try:
+        with sqlite3.connect("ticket_management.db") as conn:
+            cursor = conn.cursor()
+            st.write("Executing query:", query)
+            # Record changes before executing the query
+            before = conn.total_changes
+            cursor.execute(query)
+            conn.commit()
+            after = conn.total_changes
+            affected = after - before
+            if query.strip().lower().startswith("select"):
+                data = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                df = pd.DataFrame(data, columns=columns)
+                st.write("Query returned", len(df), "rows.")
+                return df, None
+            else:
+                st.write("Query committed. Rows affected:", affected)
+                # Force a refresh so that updates appear (optional)
+                st.experimental_rerun()
+                return None, f"Query executed. Rows affected: {affected}"
+    except Exception as e:
+        st.error(f"Error executing query: {e}")
+        return None, f"Error: {e}"
+
+# -----------------------------------------------------------
+# SQL Console Page
 # -----------------------------------------------------------
 def sql_console_page():
     st.markdown("## 🔍 SQL Query Console")
     st.write("Run custom SQL queries on your local SQLite database (ticket_management.db).")
-    st.warning("Use caution with UPDATE, DELETE, or DROP queries as these will permanently modify your data.")
-
+    st.warning("Use caution with UPDATE, DELETE, or DROP queries as these permanently modify your data.")
+    
     query = st.text_area(
         "Enter your SQL query below:",
         height=150,
-        placeholder="e.g., UPDATE tickets SET status = 'Delivered' WHERE ticket_number = 'T123';"
+        placeholder="e.g., INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay) VALUES ('2025-03-24', '12:00:00', 'Batch-1', 'T123', 1, 'Intake', 5.5);"
     )
-
+    
     if st.button("Execute Query"):
         if not query.strip():
             st.warning("Please enter a SQL query.")
@@ -149,27 +184,6 @@ def sql_console_page():
                 st.info(message)
     st.markdown("### Last Query Run")
     st.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-def run_query(query: str):
-    try:
-        with sqlite3.connect("ticket_management.db") as conn:
-            cursor = conn.cursor()
-            st.write("Executing query:", query)
-            cursor.execute(query)
-            if query.strip().lower().startswith("select"):
-                data = cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
-                df = pd.DataFrame(data, columns=columns)
-                st.write("Query returned", len(df), "rows.")
-                return df, None
-            else:
-                conn.commit()
-                affected = cursor.rowcount
-                st.write("Query committed successfully. Rows affected:", affected)
-                return None, f"Query executed successfully. Rows affected: {affected}"
-    except Exception as e:
-        st.error(f"Error executing query: {e}")
-        return None, f"Error: {e}"
 
 # -----------------------------------------------------------
 # Navigation
@@ -325,7 +339,7 @@ def add_tickets_page():
                     if animations["success"]:
                         st_lottie(animations["success"], height=120)
                 if failed_tickets:
-                    st.warning(f"Could not add {len(failed_tickets)} ticket(s): {', '.join(failed_tickets[:5])}{'...' if len(failed_tickets)>5 else ''}")
+                    st.warning(f"Could not add {len(failed_tickets)} ticket(s): {', '.join(failed_tickets[:5])}{'...' if len(failed_tickets) > 5 else ''}")
             else:
                 st.warning("Please enter ticket number(s).")
     else:
@@ -452,7 +466,7 @@ def manage_tickets_page():
                 else:
                     missing_tickets.append(t)
             if missing_tickets:
-                st.warning(f"{len(missing_tickets)} tickets not found: {', '.join(missing_tickets[:3])}{'...' if len(missing_tickets) > 3 else ''}")
+                st.warning(f"{len(missing_tickets)} tickets not found: {', '.join(missing_tickets[:3])}{'...' if len(missing_tickets)>3 else ''}")
             if found_tickets:
                 st.success(f"{len(found_tickets)} valid tickets found")
                 if bulk_action == "Update Status":
@@ -528,76 +542,6 @@ def manage_tickets_page():
                     st.success(f"All tickets in batch '{selected_batch}' updated to '{new_status_ui}'!")
         else:
             st.info("No batches found in the database.")
-
-# -----------------------------------------------------------
-# Batch View Page (Tile View)
-# -----------------------------------------------------------
-def batch_view_page():
-    st.markdown("## 🗂️ Batch View")
-    st.write("View batches as tiles by status. Click 'Edit Status' to update a batch.")
-    df_batches = pd.read_sql(
-        "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
-        conn
-    )
-    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
-    
-    def display_batches(df, tab_key):
-        cols = st.columns(3)
-        for idx, row in df.iterrows():
-            status_str = row["statuses"]
-            display_status = "Mixed" if "," in status_str else ui_status_from_db(status_str)
-            unique_key = f"edit_{row['batch_name']}_{idx}_{tab_key}"
-            with cols[idx % 3]:
-                st.markdown(f"""
-                <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-                  <h4>{row['batch_name']}</h4>
-                  <p>Total Tickets: {row['total_tickets']}</p>
-                  <p>Status: {display_status}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button("Edit Status", key=unique_key):
-                    st.session_state.edit_batch = row["batch_name"]
-                    
-    with tab_intake:
-        df_intake = df_batches[df_batches["statuses"] == "Intake"]
-        if not df_intake.empty:
-            display_batches(df_intake, "intake")
-        else:
-            st.info("No Intake batches found.")
-    
-    with tab_ready:
-        df_ready = df_batches[df_batches["statuses"] == "Return"]
-        if not df_ready.empty:
-            display_batches(df_ready, "ready")
-        else:
-            st.info("No Ready to Deliver batches found.")
-    
-    with tab_delivered:
-        df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
-        if not df_delivered.empty:
-            display_batches(df_delivered, "delivered")
-        else:
-            st.info("No Delivered batches found.")
-    
-    with tab_all:
-        if not df_batches.empty:
-            display_batches(df_batches, "all")
-        else:
-            st.info("No batches found.")
-    
-    if st.session_state.edit_batch:
-        st.markdown("## Update Batch Status")
-        batch_to_edit = st.session_state.edit_batch
-        st.write(f"Updating status for batch: **{batch_to_edit}**")
-        with st.form("update_batch_status_form"):
-            new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
-            submitted = st.form_submit_button("Update Batch Status")
-            if submitted:
-                db_status = db_status_from_ui(new_status_ui)
-                cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
-                conn.commit()
-                st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None
 
 # -----------------------------------------------------------
 # Income Page
