@@ -7,3 +7,4 @@ requests>=2.25.0
 numpy
 python-dotenv
 psycopg2-binary
+socket
