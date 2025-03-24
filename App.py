@@ -69,7 +69,7 @@ def load_lottieurl(url: str):
         if r.status_code != 200:
             return None
         return r.json()
-    except Exception as e:
+    except Exception:
         return None
 
 animations = {
@@ -124,20 +124,13 @@ def ui_status_from_db(status_db: str) -> str:
     return status_db
 
 # -----------------------------------------------------------
-# SQL Query Runner (Integrated in SQL Console Page)
+# SQL Query Console (Integrated)
 # -----------------------------------------------------------
 def run_query(query: str):
-    """
-    Executes a SQL query against the local SQLite database.
-    For SELECT queries, returns a DataFrame.
-    For non-SELECT queries, commits changes and returns a message
-    indicating the number of rows affected.
-    """
     try:
         with sqlite3.connect("ticket_management.db") as conn:
             cursor = conn.cursor()
             st.write("Executing query:", query)
-            # Record changes before executing the query
             before = conn.total_changes
             cursor.execute(query)
             conn.commit()
@@ -151,27 +144,21 @@ def run_query(query: str):
                 return df, None
             else:
                 st.write("Query committed. Rows affected:", affected)
-                # Force a refresh so that updates appear (optional)
-                st.experimental_rerun()
+                st.experimental_rerun()  # Force refresh
                 return None, f"Query executed. Rows affected: {affected}"
     except Exception as e:
         st.error(f"Error executing query: {e}")
         return None, f"Error: {e}"
 
-# -----------------------------------------------------------
-# SQL Console Page
-# -----------------------------------------------------------
 def sql_console_page():
     st.markdown("## 🔍 SQL Query Console")
     st.write("Run custom SQL queries on your local SQLite database (ticket_management.db).")
-    st.warning("Use caution with UPDATE, DELETE, or DROP queries as these permanently modify your data.")
-    
+    st.warning("Use caution with UPDATE, DELETE, or DROP queries; these will permanently modify your data.")
     query = st.text_area(
         "Enter your SQL query below:",
         height=150,
-        placeholder="e.g., INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay) VALUES ('2025-03-24', '12:00:00', 'Batch-1', 'T123', 1, 'Intake', 5.5);"
+        placeholder="e.g., UPDATE tickets SET status = 'Delivered' WHERE ticket_number = 'T123';"
     )
-    
     if st.button("Execute Query"):
         if not query.strip():
             st.warning("Please enter a SQL query.")
@@ -186,28 +173,69 @@ def sql_console_page():
     st.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # -----------------------------------------------------------
-# Navigation
+# Batch View Page (Tile View)
 # -----------------------------------------------------------
-def render_navbar():
-    pages = {
-        "Dashboard": "📊",
-        "Add Tickets": "➕",
-        "View Tickets": "👁️",
-        "Manage Tickets": "🔄",
-        "Income": "💰",
-        "Batches": "🗂️",
-        "Settings": "⚙️",
-        "SQL Console": "💻"
-    }
-    st.markdown(f"""
-    <div style="padding: 10px; background-color: #ffffff; border-radius: 8px; margin-bottom: 20px;">
-        <h2 style="display:inline;">🎟️ {st.session_state.company_name} Ticket System</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    cols = st.columns(len(pages))
-    for i, (page, icon) in enumerate(pages.items()):
-        if cols[i].button(f"{icon} {page}"):
-            st.session_state.active_page = page
+def batch_view_page():
+    st.markdown("## 🗂️ Batch View")
+    st.write("View batches as tiles by status. Click 'Edit Status' to update a batch.")
+    df_batches = pd.read_sql(
+        "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
+        conn
+    )
+    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
+    
+    def display_batches(df, tab_key):
+        cols = st.columns(3)
+        for idx, row in df.iterrows():
+            status_str = row["statuses"]
+            display_status = "Mixed" if "," in status_str else ui_status_from_db(status_str)
+            unique_key = f"edit_{row['batch_name']}_{idx}_{tab_key}"
+            with cols[idx % 3]:
+                st.markdown(f"""
+                <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
+                  <h4>{row['batch_name']}</h4>
+                  <p>Total Tickets: {row['total_tickets']}</p>
+                  <p>Status: {display_status}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Edit Status", key=unique_key):
+                    st.session_state.edit_batch = row["batch_name"]
+    with tab_intake:
+        df_intake = df_batches[df_batches["statuses"] == "Intake"]
+        if not df_intake.empty:
+            display_batches(df_intake, "intake")
+        else:
+            st.info("No Intake batches found.")
+    with tab_ready:
+        df_ready = df_batches[df_batches["statuses"] == "Return"]
+        if not df_ready.empty:
+            display_batches(df_ready, "ready")
+        else:
+            st.info("No Ready to Deliver batches found.")
+    with tab_delivered:
+        df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
+        if not df_delivered.empty:
+            display_batches(df_delivered, "delivered")
+        else:
+            st.info("No Delivered batches found.")
+    with tab_all:
+        if not df_batches.empty:
+            display_batches(df_batches, "all")
+        else:
+            st.info("No batches found.")
+    if st.session_state.edit_batch:
+        st.markdown("## Update Batch Status")
+        batch_to_edit = st.session_state.edit_batch
+        st.write(f"Updating status for batch: **{batch_to_edit}**")
+        with st.form("update_batch_status_form"):
+            new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
+            submitted = st.form_submit_button("Update Batch Status")
+            if submitted:
+                db_status = db_status_from_ui(new_status_ui)
+                cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
+                conn.commit()
+                st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
+                st.session_state.edit_batch = None
 
 # -----------------------------------------------------------
 # Dashboard Page
@@ -220,7 +248,6 @@ def dashboard_page():
     with col_title:
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View your ticket performance and earnings.")
-    
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
@@ -229,23 +256,19 @@ def dashboard_page():
     total_delivered = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets")
     total_overall = cursor.fetchone()[0] or 0
-
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
-
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
     col3.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
     col4.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
-
     st.subheader("📅 Date Range Analysis")
     col_date1, col_date2 = st.columns(2)
     with col_date1:
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
-    
     query = """
     SELECT date, 
            SUM(CASE WHEN status='Delivered' THEN num_sub_tickets ELSE 0 END) as delivered,
@@ -274,7 +297,6 @@ def dashboard_page():
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No data available for the selected date range.")
-
     st.subheader("⏱️ Recent Activity")
     df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
@@ -294,7 +316,6 @@ def add_tickets_page():
     with col_title:
         st.markdown("## ➕ Add New Tickets")
         st.write(f"Current ticket price: ${st.session_state.ticket_price:.2f} per sub-ticket")
-    
     col1, col2 = st.columns([2, 1])
     with col1:
         batch_name = st.text_input("Batch Name (optional)", placeholder="Enter a meaningful batch name")
@@ -313,7 +334,6 @@ def add_tickets_page():
         3. Enter ticket number(s).
         4. Click the Add button.
         """)
-    
     if ticket_input_type == "Multiple/General":
         tickets_text = st.text_area("Enter Ticket Number(s)", placeholder="Space or newline separated ticket numbers")
         if st.button("Add Tickets"):
@@ -364,7 +384,6 @@ def add_tickets_page():
                     st.error(f"Ticket '{large_ticket.strip()}' already exists.")
             else:
                 st.warning("Please enter a valid ticket number.")
-    
     st.subheader("Recent Additions")
     df_recent = pd.read_sql("SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", conn)
     if not df_recent.empty:
@@ -379,7 +398,6 @@ def add_tickets_page():
 def view_tickets_page():
     st.markdown("## 👁️ View Tickets by Status")
     tab1, tab2, tab3 = st.tabs(["📥 Intake", "🔄 Ready to Deliver", "🚚 Delivered"])
-    
     with tab1:
         st.subheader("Intake Tickets")
         df_intake = pd.read_sql("SELECT * FROM tickets WHERE status='Intake' ORDER BY date DESC, time DESC", conn)
@@ -388,7 +406,6 @@ def view_tickets_page():
             st.dataframe(df_intake, use_container_width=True)
         else:
             st.info("No intake tickets found")
-    
     with tab2:
         st.subheader("Ready to Deliver Tickets")
         df_ready = pd.read_sql("SELECT * FROM tickets WHERE status='Return' ORDER BY date DESC, time DESC", conn)
@@ -397,7 +414,6 @@ def view_tickets_page():
             st.dataframe(df_ready, use_container_width=True)
         else:
             st.info("No 'Ready to Deliver' tickets found")
-    
     with tab3:
         st.subheader("Delivered Tickets")
         df_delivered = pd.read_sql("SELECT * FROM tickets WHERE status='Delivered' ORDER BY date DESC, time DESC", conn)
@@ -418,14 +434,12 @@ def manage_tickets_page():
     with col_title:
         st.markdown("## 🔄 Manage Tickets")
         st.write("Advanced ticket management operations")
-    
     tab1, tab2, tab3, tab4 = st.tabs([
         "🔍 Search & Edit",
         "⚡ Bulk Operations",
         "🗑️ Delete Tickets",
         "📦 By Batch"
     ])
-    
     # Tab 1: Search & Edit
     with tab1:
         st.subheader("Individual Ticket Management")
@@ -449,7 +463,6 @@ def manage_tickets_page():
                             st_lottie(animations["success"], height=80)
             else:
                 st.warning("Ticket not found in database")
-    
     # Tab 2: Bulk Operations
     with tab2:
         st.subheader("Bulk Operations")
@@ -491,7 +504,6 @@ def manage_tickets_page():
                             cursor.execute("UPDATE tickets SET num_sub_tickets = num_sub_tickets + ? WHERE ticket_number = ?", (add_count, t))
                         conn.commit()
                         st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
-    
     # Tab 3: Delete Tickets
     with tab3:
         st.subheader("Ticket Deletion")
@@ -521,7 +533,6 @@ def manage_tickets_page():
                 cursor.execute("DELETE FROM tickets WHERE date BETWEEN ? AND ?", (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
-    
     # Tab 4: Manage Tickets By Batch
     with tab4:
         st.subheader("Manage Tickets By Batch Name")
@@ -554,13 +565,11 @@ def income_page():
     with col_title:
         st.markdown("## 💰 Income Analysis")
         st.write("Track your earnings from delivered tickets.")
-    
     col_date1, col_date2 = st.columns(2)
     with col_date1:
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
-    
     query = """
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
@@ -593,7 +602,6 @@ def settings_page():
     with col_title:
         st.markdown("## ⚙️ System Settings")
         st.write("Configure application preferences.")
-    
     tab1, tab2, tab3 = st.tabs(["💰 Pricing", "🏢 Company", "🎨 Appearance"])
     with tab1:
         st.subheader("Ticket Pricing")
@@ -616,12 +624,11 @@ def settings_page():
             st.session_state.dark_mode = dark_mode
             load_css()
         st.color_picker("Primary Color", value="#4CAF50", key="primary_color")
-        
+
 # -----------------------------------------------------------
 # Main App Flow
 # -----------------------------------------------------------
 def main():
-    # Access query parameters as a property (without calling)
     params = st.query_params
     current_page = params.get("page", ["Dashboard"])[0]
     if current_page:
