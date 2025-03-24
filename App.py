@@ -560,30 +560,35 @@ def manage_tickets_page():
 # Batches Page (New Page for batch tiles)
 # -----------------------------------------------------------
 def display_batch_tile(batch_name, total_tickets, status):
-    st.markdown(f"""
-    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-      <h4>{batch_name}</h4>
-      <p>Total Tickets: {total_tickets}</p>
-      <p>Status: {status}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    with st.container():
+        st.markdown(f"""
+        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
+          <h4>{batch_name}</h4>
+          <p>Total Tickets: {total_tickets}</p>
+          <p>Status: {status}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        # "Edit Status" button for the batch tile
+        if st.button("Edit Status", key=f"edit_{batch_name}"):
+            st.session_state.edit_batch = batch_name
 
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
-    st.write("View batches as tiles by status.")
+    st.write("View batches as tiles by status. Click on 'Edit Status' on any batch to update its status.")
     # Aggregate batches by batch_name
     df_batches = pd.read_sql(
         "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
         conn
     )
     # Create four tabs: Intake, Ready to Deliver, Delivered, and All
-    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
+    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
+        "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
+    ])
     
     def display_batches(df):
         # Display batches in a grid of 3 columns
         cols = st.columns(3)
         for idx, row in df.iterrows():
-            # If more than one status exists, mark as "Mixed"
             status_str = row["statuses"]
             if "," in status_str:
                 display_status = "Mixed"
@@ -618,6 +623,25 @@ def batch_view_page():
             display_batches(df_batches)
         else:
             st.info("No batches found.")
+    
+    # --- Batch Status Update Form ---
+    if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
+        st.markdown("## Update Batch Status")
+        batch_to_edit = st.session_state.edit_batch
+        st.write(f"Updating status for batch: **{batch_to_edit}**")
+        # Use a form to update the batch status
+        with st.form("update_batch_status_form"):
+            new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
+            submitted = st.form_submit_button("Update Batch Status")
+            if submitted:
+                db_status = db_status_from_ui(new_status_ui)
+                cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
+                conn.commit()
+                st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
+                st.session_state.edit_batch = None  # Clear the edit flag
+                # Optionally, you can force a rerun to update the view:
+                # st.experimental_rerun()
+
 
 # -----------------------------------------------------------
 # Income Page
