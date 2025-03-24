@@ -5,3 +5,5 @@ openpyxl>=3.0.0
 streamlit-lottie>=0.0.5
 requests>=2.25.0
 numpy
+python-dotenv
+psycopg2-binary
