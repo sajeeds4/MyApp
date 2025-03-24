@@ -637,11 +637,8 @@ def settings_page():
 # Main App Flow
 # -----------------------------------------------------------
 def main():
-    # Use query parameters without calling the property (no parentheses)
+    # Access query parameters as a property (no parentheses)
     params = st.query_params
-    # If you want a fallback, you can also use:
-    # params = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
-    # For this example, we assume st.query_params is available.
     current_page = params.get("page", ["Dashboard"])[0]
     if current_page:
         st.session_state.active_page = current_page
