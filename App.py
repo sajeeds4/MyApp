@@ -53,7 +53,6 @@ def load_css():
             background-color: {bg_color};
             color: {text_color};
         }}
-        /* Hide Streamlit Branding */
         #MainMenu, footer, header {{
             visibility: hidden;
         }}
@@ -487,79 +486,6 @@ def manage_tickets_page():
             st.info("No batches found in the database.")
 
 # -----------------------------------------------------------
-# Batches Page (Tile View with Edit Status Option)
-# -----------------------------------------------------------
-def display_batch_tile(batch_name, total_tickets, status, unique_key):
-    st.markdown(f"""
-    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-      <h4>{batch_name}</h4>
-      <p>Total Tickets: {total_tickets}</p>
-      <p>Status: {status}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("Edit Status", key=unique_key):
-        st.session_state.edit_batch = batch_name
-
-def batch_view_page():
-    st.markdown("## 🗂️ Batch View")
-    st.write("View batches as tiles by status. Click 'Edit Status' to update a batch.")
-    df_batches = pd.read_sql(
-        "SELECT batch_name, SUM(num_sub_tickets) as total_tickets, GROUP_CONCAT(DISTINCT status) as statuses FROM tickets GROUP BY batch_name",
-        conn
-    )
-    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs(["Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"])
-    
-    def display_batches(df, tab_key):
-        cols = st.columns(3)
-        for idx, row in df.iterrows():
-            status_str = row["statuses"]
-            display_status = "Mixed" if "," in status_str else ui_status_from_db(status_str)
-            unique_key = f"edit_{row['batch_name']}_{idx}_{tab_key}"
-            with cols[idx % 3]:
-                display_batch_tile(row["batch_name"], row["total_tickets"], display_status, unique_key)
-    
-    with tab_intake:
-        df_intake = df_batches[df_batches["statuses"] == "Intake"]
-        if not df_intake.empty:
-            display_batches(df_intake, "intake")
-        else:
-            st.info("No Intake batches found.")
-    
-    with tab_ready:
-        df_ready = df_batches[df_batches["statuses"] == "Return"]
-        if not df_ready.empty:
-            display_batches(df_ready, "ready")
-        else:
-            st.info("No Ready to Deliver batches found.")
-    
-    with tab_delivered:
-        df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
-        if not df_delivered.empty:
-            display_batches(df_delivered, "delivered")
-        else:
-            st.info("No Delivered batches found.")
-    
-    with tab_all:
-        if not df_batches.empty:
-            display_batches(df_batches, "all")
-        else:
-            st.info("No batches found.")
-    
-    if st.session_state.edit_batch:
-        st.markdown("## Update Batch Status")
-        batch_to_edit = st.session_state.edit_batch
-        st.write(f"Updating status for batch: **{batch_to_edit}**")
-        with st.form("update_batch_status_form"):
-            new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
-            submitted = st.form_submit_button("Update Batch Status")
-            if submitted:
-                db_status = db_status_from_ui(new_status_ui)
-                cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
-                conn.commit()
-                st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None
-
-# -----------------------------------------------------------
 # Income Page
 # -----------------------------------------------------------
 def income_page():
@@ -637,7 +563,7 @@ def settings_page():
 # Main App Flow
 # -----------------------------------------------------------
 def main():
-    # Access query parameters as a property (no parentheses)
+    # Access query parameters as a property (without calling)
     params = st.query_params
     current_page = params.get("page", ["Dashboard"])[0]
     if current_page:
@@ -652,7 +578,7 @@ def main():
         "Income": income_page,
         "Batches": batch_view_page,
         "Settings": settings_page,
-        "Extension": extension_page  # Imported from extension.py
+        "Extension": extension_page
     }
     active_page = st.session_state.active_page
     if active_page in pages:
