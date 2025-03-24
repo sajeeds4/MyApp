@@ -6,6 +6,7 @@ import requests
 from streamlit_lottie import st_lottie
 import plotly.express as px
 import plotly.graph_objects as go
+from extension import extension_page
 
 # -----------------------------------------------------------
 # Configuration
@@ -727,6 +728,7 @@ def main():
         "Income": income_page,
         "Batches": batch_view_page,
         "Settings": settings_page
+         "Extension": extension_page  # Added extension page
     }
     active_page = st.session_state.active_page
     if active_page in pages:
