@@ -712,7 +712,7 @@ def ai_analysis_page():
     st.markdown("## 🤖 AI Analysis")
     st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
     
-    # Compute overall statistics
+    # Overall statistics
     total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
     total_tickets = total_tickets_df.iloc[0]['total'] or 0
     total_delivered_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total_delivered FROM tickets WHERE status='Delivered'", conn)
@@ -722,19 +722,61 @@ def ai_analysis_page():
     st.metric("Total Tickets", total_tickets)
     st.metric("Total Delivered", total_delivered)
     st.metric("Delivery Conversion Rate (%)", f"{conversion_rate:.2f}%")
-
+    
     # Trend Analysis: Daily delivered tickets
-    df_trend = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date", conn)
+    df_trend = pd.read_sql(
+        "SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date",
+        conn
+    )
     if not df_trend.empty:
         df_trend['date'] = pd.to_datetime(df_trend['date'])
-        fig = go.Figure(go.Scatter(x=df_trend['date'], y=df_trend['delivered'], mode='lines+markers'))
-        fig.update_layout(title="Daily Delivered Tickets Trend", xaxis_title="Date", yaxis_title="Delivered Tickets")
-        st.plotly_chart(fig, use_container_width=True)
+        fig1 = go.Figure(go.Scatter(x=df_trend['date'], y=df_trend['delivered'], mode='lines+markers'))
+        fig1.update_layout(title="Daily Delivered Tickets Trend", xaxis_title="Date", yaxis_title="Delivered Tickets")
+        st.plotly_chart(fig1, use_container_width=True)
         avg_delivered = df_trend['delivered'].mean()
         st.write(f"On average, you deliver about {avg_delivered:.1f} tickets per day.")
     else:
         st.info("No delivered ticket data available for trend analysis.")
-
+    
+    # Advanced Analysis: Average Daily Counts Grouped by Weekday
+    df_status = pd.read_sql(
+        "SELECT date, status, SUM(num_sub_tickets) as count FROM tickets GROUP BY date, status",
+        conn
+    )
+    if not df_status.empty:
+        # Convert date column to datetime and extract weekday name
+        df_status['date'] = pd.to_datetime(df_status['date'])
+        df_status['weekday'] = df_status['date'].dt.day_name()
+        # Convert database status to UI label for clarity
+        df_status['status_ui'] = df_status['status'].apply(ui_status_from_db)
+        
+        # Create a pivot table to calculate the average count per weekday for each ticket status
+        pivot = df_status.pivot_table(index='weekday', columns='status_ui', values='count', aggfunc='mean', fill_value=0)
+        # Order the weekdays in natural order
+        weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        pivot = pivot.reindex(weekday_order)
+        
+        st.subheader("Average Daily Ticket Counts by Weekday")
+        st.dataframe(pivot)
+        
+        # Plot grouped bar chart for weekday analysis
+        fig2 = go.Figure()
+        for status in pivot.columns:
+            fig2.add_trace(go.Bar(
+                x=pivot.index,
+                y=pivot[status],
+                name=status
+            ))
+        fig2.update_layout(
+            title="Average Ticket Counts by Weekday",
+            xaxis_title="Weekday",
+            yaxis_title="Average Count",
+            barmode="group"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("No ticket data available for weekday analysis.")
+    
     # Basic AI-driven insights using simple heuristics
     st.subheader("Insights")
     if conversion_rate < 50:
