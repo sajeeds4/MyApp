@@ -6,6 +6,7 @@ import requests
 from streamlit_lottie import st_lottie
 import plotly.express as px
 import plotly.graph_objects as go
+from io import BytesIO
 
 # -----------------------------------------------------------
 # Configuration
@@ -129,7 +130,7 @@ def ui_status_from_db(status_db: str) -> str:
     return status_db
 
 # -----------------------------------------------------------
-# Navigation (Add "Batches" page to navigation)
+# Navigation (Add new pages to navigation)
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -139,6 +140,8 @@ def render_navbar():
         "Manage Tickets": "🔄",
         "Income": "💰",
         "Batches": "🗂️",
+        "AI Analysis": "🤖",
+        "Backup & Restore": "💾",
         "Settings": "⚙️"
     }
     st.markdown(f"""
@@ -644,7 +647,7 @@ def batch_view_page():
         else:
             st.info("No batches found.")
     
-    # --- Batch Status Update Form ---
+    # --- Batch Status Update Form ---    
     if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -659,9 +662,6 @@ def batch_view_page():
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
                 st.session_state.edit_batch = None  # Clear the edit flag
-                # Optionally, you can force a rerun to update the view:
-                # st.experimental_rerun()
-
 
 # -----------------------------------------------------------
 # Income Page
@@ -704,6 +704,92 @@ def income_page():
         st.info("No delivered tickets found in this date range")
     
     st.markdown("---")
+
+# -----------------------------------------------------------
+# AI Analysis Page (New)
+# -----------------------------------------------------------
+def ai_analysis_page():
+    st.markdown("## 🤖 AI Analysis")
+    st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
+    
+    # Compute overall statistics
+    total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
+    total_tickets = total_tickets_df.iloc[0]['total'] or 0
+    total_delivered_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total_delivered FROM tickets WHERE status='Delivered'", conn)
+    total_delivered = total_delivered_df.iloc[0]['total_delivered'] or 0
+    conversion_rate = (total_delivered / total_tickets * 100) if total_tickets else 0
+
+    st.metric("Total Tickets", total_tickets)
+    st.metric("Total Delivered", total_delivered)
+    st.metric("Delivery Conversion Rate (%)", f"{conversion_rate:.2f}%")
+
+    # Trend Analysis: Daily delivered tickets
+    df_trend = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date", conn)
+    if not df_trend.empty:
+        df_trend['date'] = pd.to_datetime(df_trend['date'])
+        fig = go.Figure(go.Scatter(x=df_trend['date'], y=df_trend['delivered'], mode='lines+markers'))
+        fig.update_layout(title="Daily Delivered Tickets Trend", xaxis_title="Date", yaxis_title="Delivered Tickets")
+        st.plotly_chart(fig, use_container_width=True)
+        avg_delivered = df_trend['delivered'].mean()
+        st.write(f"On average, you deliver about {avg_delivered:.1f} tickets per day.")
+    else:
+        st.info("No delivered ticket data available for trend analysis.")
+
+    # Basic AI-driven insights using simple heuristics
+    st.subheader("Insights")
+    if conversion_rate < 50:
+        st.info("Your delivery conversion rate is below 50%. Consider strategies to improve ticket delivery, such as follow-up reminders or quality control checks.")
+    elif conversion_rate < 75:
+        st.info("Your delivery conversion rate is moderate. There might be room for improvement to achieve higher efficiency.")
+    else:
+        st.success("Great job! Your delivery conversion rate is high, indicating efficient ticket management.")
+    
+    st.write("Keep monitoring your performance regularly to identify trends and optimize your operations.")
+
+# -----------------------------------------------------------
+# Backup & Restore Page (New)
+# -----------------------------------------------------------
+def backup_restore_page():
+    st.markdown("## 💾 Backup & Restore")
+    st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file.")
+    
+    st.subheader("Download Options")
+    # Download SQLite database
+    try:
+        with open("ticket_management.db", "rb") as db_file:
+            db_bytes = db_file.read()
+        st.download_button("Download Database (.db)", db_bytes, file_name="ticket_management.db", mime="application/octet-stream")
+    except Exception as e:
+        st.error("Database file not found.")
+    
+    # Export to Excel
+    df_tickets = pd.read_sql("SELECT * FROM tickets", conn)
+    if not df_tickets.empty:
+        towrite = BytesIO()
+        with pd.ExcelWriter(towrite, engine="xlsxwriter") as writer:
+            df_tickets.to_excel(writer, index=False, sheet_name="Tickets")
+        towrite.seek(0)
+        st.download_button("Download Excel Backup", towrite.read(), file_name="tickets_backup.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        st.info("No ticket data available to export.")
+    
+    st.subheader("Restore from Excel")
+    st.write("Upload an Excel file to restore your ticket data. **Warning:** This will overwrite your current ticket data.")
+    uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx"])
+    if uploaded_file is not None:
+        try:
+            df_restore = pd.read_excel(uploaded_file)
+            # Validate required columns
+            required_columns = {"date", "time", "batch_name", "ticket_number", "num_sub_tickets", "status", "pay", "comments", "ticket_day", "ticket_school"}
+            if not required_columns.issubset(set(df_restore.columns)):
+                st.error("Uploaded Excel file does not contain the required columns.")
+            else:
+                cursor.execute("DELETE FROM tickets")
+                conn.commit()
+                df_restore.to_sql("tickets", conn, if_exists="append", index=False)
+                st.success("Database restored successfully from Excel file!")
+        except Exception as e:
+            st.error(f"Error restoring from Excel: {e}")
 
 # -----------------------------------------------------------
 # Settings Page
@@ -755,6 +841,8 @@ def main():
         "Manage Tickets": manage_tickets_page,
         "Income": income_page,
         "Batches": batch_view_page,
+        "AI Analysis": ai_analysis_page,
+        "Backup & Restore": backup_restore_page,
         "Settings": settings_page
     }
     active_page = st.session_state.active_page
