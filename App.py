@@ -993,6 +993,7 @@ def backup_restore_page():
             st.error(f"Error restoring database from .db file: {e}")
 
 
+
 # -----------------------------------------------------------
 # Settings Page
 # -----------------------------------------------------------
