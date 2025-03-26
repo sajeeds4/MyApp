@@ -141,6 +141,7 @@ def render_navbar():
         "View Tickets": "👁️",
         "Manage Tickets": "🔄",
         "Bulk Ticket Comparison": "🔍",
+        "SQL Query Converter": "📝",
         "Income": "💰",
         "Batches": "🗂️",
         "AI Analysis": "🤖",
@@ -433,7 +434,6 @@ def manage_tickets_page():
         st.write("Advanced ticket management operations")
     
     st.markdown("---")
-    # Added an extra tab for SQL Query insert/update
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Search & Edit",
         "⚡ Bulk Operations",
@@ -583,68 +583,45 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Bulk Ticket Comparison Page
+# SQL Query Converter Page
 # -----------------------------------------------------------
-def bulk_ticket_comparison_page():
-    st.markdown("## Bulk Ticket Comparison")
-    st.write("Enter two lists of ticket numbers to compare. This tool will identify which tickets are missing from each list and display the current status for tickets found in both lists.")
+def sql_query_converter_page():
+    st.markdown("## SQL Query Converter")
+    st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. This tool will extract the ticket numbers and update their status accordingly.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        list_a_input = st.text_area(
-            "Ticket List A",
-            placeholder="Enter ticket numbers separated by commas or newlines",
-            height=150
-        )
-    with col2:
-        list_b_input = st.text_area(
-            "Ticket List B",
-            placeholder="Enter ticket numbers separated by commas or newlines",
-            height=150
-        )
+    raw_text = st.text_area("Enter raw ticket data", placeholder="""125633 - Eastport-South Manor / Acer R752T
+125632 - Eastport-South Manor / Acer R752T
+125631 - Eastport-South Manor / Acer R752T""", height=200)
     
-    if st.button("Compare Tickets"):
-        def parse_ticket_list(text):
-            text = text.replace(',', '\n')
-            tickets = [line.strip() for line in text.splitlines() if line.strip()]
-            return set(tickets)
+    target_status = st.selectbox("Select target status", ["Intake", "Ready to Deliver"])
+    
+    if st.button("Generate and Execute SQL Query"):
+        # Parse the input lines to extract ticket numbers
+        lines = raw_text.strip().splitlines()
+        ticket_numbers = []
+        for line in lines:
+            if " - " in line:
+                ticket_number = line.split(" - ")[0].strip()
+                ticket_numbers.append(ticket_number)
+            else:
+                # Fallback: take the first word of the line
+                ticket_numbers.append(line.split()[0].strip())
         
-        tickets_a = parse_ticket_list(list_a_input)
-        tickets_b = parse_ticket_list(list_b_input)
+        # Determine DB status (mapping "Ready to Deliver" to "Return")
+        db_status = "Intake" if target_status == "Intake" else "Return"
         
-        missing_in_b = tickets_a - tickets_b
-        missing_in_a = tickets_b - tickets_a
-        common_tickets = tickets_a.intersection(tickets_b)
-        
-        st.subheader("Comparison Results")
-        
-        st.markdown("### Tickets in List A but missing in List B:")
-        if missing_in_b:
-            st.write(", ".join(sorted(missing_in_b)))
-        else:
-            st.write("None")
-        
-        st.markdown("### Tickets in List B but missing in List A:")
-        if missing_in_a:
-            st.write(", ".join(sorted(missing_in_a)))
-        else:
-            st.write("None")
-        
-        st.markdown("### Tickets in Both Lists with Status")
-        if common_tickets:
+        if ticket_numbers:
+            placeholders = ','.join('?' for _ in ticket_numbers)
+            sql_query = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
+            params = [db_status] + ticket_numbers
             try:
-                placeholders = ','.join('?' for _ in common_tickets)
-                query = f"SELECT ticket_number, status FROM tickets WHERE ticket_number IN ({placeholders})"
-                df_status = pd.read_sql(query, conn, params=list(common_tickets))
-                if not df_status.empty:
-                    df_status['status'] = df_status['status'].apply(ui_status_from_db)
-                    st.dataframe(df_status)
-                else:
-                    st.write("None of the common tickets were found in the database.")
+                cursor.execute(sql_query, params)
+                conn.commit()
+                st.success(f"Updated {cursor.rowcount} tickets to '{target_status}'")
             except Exception as e:
-                st.error(f"Error fetching ticket statuses: {e}")
+                st.error(f"Error executing query: {e}")
         else:
-            st.write("No common tickets between the two lists.")
+            st.warning("No ticket numbers found in the input.")
 
 # -----------------------------------------------------------
 # Batches Page (New Page for batch tiles)
@@ -652,7 +629,6 @@ def bulk_ticket_comparison_page():
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
-    # Update the query to include a concatenated list of ticket numbers for each batch.
     df_batches = pd.read_sql(
         """
         SELECT batch_name, 
@@ -663,13 +639,11 @@ def batch_view_page():
         GROUP BY batch_name
         """, conn
     )
-    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
         "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
     ])
     
     def display_batches(df):
-        # Display batches in a grid of 3 columns
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
@@ -713,7 +687,6 @@ def batch_view_page():
         else:
             st.info("No batches found.")
     
-    # --- Batch Status Update Form ---    
     if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -726,7 +699,7 @@ def batch_view_page():
                 cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None  # Clear the edit flag
+                st.session_state.edit_batch = None
 
 def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
     with st.container():
@@ -737,10 +710,8 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_num
           <p>Status: {status}</p>
         </div>
         """, unsafe_allow_html=True)
-        # "Edit Status" button using a composite key for uniqueness
         if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
             st.session_state.edit_batch = batch_name
-        # "Copy Tickets" button using a unique key and a custom HTML snippet for clipboard copying
         if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
             html_code = f"""
             <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
@@ -1083,6 +1054,7 @@ def main():
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
         "Bulk Ticket Comparison": bulk_ticket_comparison_page,
+        "SQL Query Converter": sql_query_converter_page,
         "Income": income_page,
         "Batches": batch_view_page,
         "AI Analysis": ai_analysis_page,
