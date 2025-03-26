@@ -583,12 +583,88 @@ def manage_tickets_page():
 # BULK TICKET COMPARISON PAGE (Placeholder to avoid errors)
 # -----------------------------------------------------------
 def bulk_ticket_comparison_page():
-    """
-    Placeholder function to avoid NameError. 
-    You can implement your actual 'Bulk Ticket Comparison' logic here.
-    """
     st.markdown("## 🔍 Bulk Ticket Comparison")
-    st.write("This page is under construction. Stay tuned for updates!")
+    st.write("""
+        Paste a list of ticket numbers (one per line) to see how they compare 
+        with tickets in the database:
+        - **Missing in DB**: In your pasted list but not in the DB.
+        - **Extra in DB**: In the DB but not in your pasted list.
+        - **Matches**: Found in both.
+    """)
+
+    # 1) Text area to accept user-pasted ticket numbers:
+    pasted_tickets_text = st.text_area(
+        "Paste ticket numbers here (one per line)",
+        height=200,
+        placeholder="e.g.\n12345\n12346\nABC999"
+    )
+
+    # 2) Button to trigger the comparison:
+    if st.button("Compare"):
+        # --- Parse the pasted list into a set of ticket numbers ---
+        user_tickets = set()
+        lines = pasted_tickets_text.strip().splitlines()
+        for line in lines:
+            line = line.strip()
+            if line:
+                user_tickets.add(line)
+
+        if not user_tickets:
+            st.warning("No valid ticket numbers found in the text area.")
+            return
+
+        # --- Load all ticket_number values from DB into a set ---
+        df_db_tickets = pd.read_sql("SELECT ticket_number FROM tickets", conn)
+        db_tickets = set(df_db_tickets["ticket_number"].tolist())
+
+        # --- Compute set differences & intersection ---
+        missing_in_db = user_tickets - db_tickets   # in user list, not in DB
+        extra_in_db = db_tickets - user_tickets     # in DB, not in user list
+        matches = user_tickets & db_tickets         # in both
+
+        # --- Display Summary ---
+        colA, colB, colC = st.columns(3)
+        with colA:
+            st.metric("Missing in DB", len(missing_in_db))
+        with colB:
+            st.metric("Extra in DB", len(extra_in_db))
+        with colC:
+            st.metric("Matches", len(matches))
+
+        st.write("---")
+        st.subheader("Details")
+
+        # --- 2.1) Missing in DB ---
+        if missing_in_db:
+            st.write("### Tickets Missing in DB")
+            st.write(", ".join(sorted(missing_in_db)))
+        else:
+            st.info("No missing tickets in DB.")
+
+        # --- 2.2) Extra in DB (now also with details) ---
+        if extra_in_db:
+            st.write("### Tickets in DB But Not in Your List")
+            st.write(", ".join(sorted(extra_in_db)))
+            # Fetch their details from DB:
+            placeholders = ",".join(["?"] * len(extra_in_db))
+            query_extra = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
+            df_extra = pd.read_sql(query_extra, conn, params=list(extra_in_db))
+            df_extra["status"] = df_extra["status"].apply(ui_status_from_db)
+            st.dataframe(df_extra, use_container_width=True)
+        else:
+            st.info("No extra tickets found in DB.")
+
+        # --- 2.3) Matches (Detailed Info) ---
+        if matches:
+            st.write("### Matched Tickets (In Both Lists)")
+            placeholders = ",".join(["?"] * len(matches))
+            query = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
+            df_matched = pd.read_sql(query, conn, params=list(matches))
+            df_matched["status"] = df_matched["status"].apply(ui_status_from_db)
+            st.dataframe(df_matched, use_container_width=True)
+        else:
+            st.info("No tickets were found in both lists.")
+
 
 # -----------------------------------------------------------
 # SQL Query Converter Page
