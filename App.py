@@ -593,16 +593,21 @@ def bulk_ticket_comparison_page():
 # -----------------------------------------------------------
 def sql_query_converter_page():
     st.markdown("## SQL Query Converter")
-    st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. This tool will extract the ticket numbers and update their status accordingly.")
+    st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. "
+             "This tool will extract the ticket numbers and ensure they exist in the database, then update their status accordingly.")
 
-    raw_text = st.text_area("Enter raw ticket data", placeholder="""125633 - Eastport-South Manor / Acer R752T
+    raw_text = st.text_area(
+        "Enter raw ticket data", 
+        placeholder="""125633 - Eastport-South Manor / Acer R752T
 125632 - Eastport-South Manor / Acer R752T
-125631 - Eastport-South Manor / Acer R752T""", height=200)
+125631 - Eastport-South Manor / Acer R752T""",
+        height=200
+    )
     
     target_status = st.selectbox("Select target status", ["Intake", "Ready to Deliver"])
     
     if st.button("Generate and Execute SQL Query"):
-        # Parse the input lines to extract ticket numbers
+        # 1) Parse the input lines to extract ticket numbers.
         lines = raw_text.strip().splitlines()
         ticket_numbers = []
         for line in lines:
@@ -610,24 +615,58 @@ def sql_query_converter_page():
                 ticket_number = line.split(" - ")[0].strip()
                 ticket_numbers.append(ticket_number)
             else:
-                # Fallback: take the first word of the line
-                ticket_numbers.append(line.split()[0].strip())
-        
-        # Determine DB status (mapping "Ready to Deliver" to "Return")
+                # Fallback: take the first word of the line.
+                parts = line.split()
+                if parts:
+                    ticket_numbers.append(parts[0].strip())
+
+        # 2) Determine DB status (mapping "Ready to Deliver" → "Return").
         db_status = "Intake" if target_status == "Intake" else "Return"
         
         if ticket_numbers:
+            # Build placeholders for dynamic queries.
             placeholders = ','.join('?' for _ in ticket_numbers)
-            sql_query = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
+            
+            # --- FIRST PASS: Insert tickets that do not exist ---
+            # Use INSERT OR IGNORE so that existing tickets won't be overwritten,
+            # and brand-new tickets get inserted with default sub-tickets = 1.
+            # Adjust columns/values to what you prefer (e.g., time, pay).
+            # You can also store the current date/time if desired.
+            now_date = datetime.datetime.now().strftime("%Y-%m-%d")
+            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+
+            insert_sql = f"""
+                INSERT OR IGNORE INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                VALUES (?, ?, ?, ?, 1, 'Intake', ?)
+            """
+            
+            # For each ticket_number, attempt to insert it if it doesn't already exist.
+            # We'll default new tickets to 'Intake' status and 1 sub_ticket. 
+            # Then in the next step, we’ll update them all to the desired status anyway.
+            for tkt in ticket_numbers:
+                try:
+                    cursor.execute(insert_sql, (now_date, now_time, "Auto-Batch", tkt, st.session_state.ticket_price))
+                except Exception as e:
+                    st.error(f"Error inserting ticket {tkt}: {e}")
+            
+            conn.commit()
+
+            # --- SECOND PASS: Update the status for all these tickets ---
+            update_sql = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
             params = [db_status] + ticket_numbers
+
             try:
-                cursor.execute(sql_query, params)
+                cursor.execute(update_sql, params)
                 conn.commit()
-                st.success(f"Updated {cursor.rowcount} tickets to '{target_status}'")
+                st.success(
+                    f"Inserted/updated {cursor.rowcount} tickets. "
+                    f"All have been set to '{target_status}' now."
+                )
             except Exception as e:
-                st.error(f"Error executing query: {e}")
+                st.error(f"Error updating tickets to '{target_status}': {e}")
         else:
             st.warning("No ticket numbers found in the input.")
+
 
 # -----------------------------------------------------------
 # Batches Page (New Page for batch tiles)
