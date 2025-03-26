@@ -140,6 +140,7 @@ def render_navbar():
         "Add Tickets": "➕",
         "View Tickets": "👁️",
         "Manage Tickets": "🔄",
+        "Bulk Ticket Comparison": "🔍",
         "Income": "💰",
         "Batches": "🗂️",
         "AI Analysis": "🤖",
@@ -582,38 +583,72 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
+# Bulk Ticket Comparison Page
+# -----------------------------------------------------------
+def bulk_ticket_comparison_page():
+    st.markdown("## Bulk Ticket Comparison")
+    st.write("Enter two lists of ticket numbers to compare. This tool will identify which tickets are missing from each list and display the current status for tickets found in both lists.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        list_a_input = st.text_area(
+            "Ticket List A",
+            placeholder="Enter ticket numbers separated by commas or newlines",
+            height=150
+        )
+    with col2:
+        list_b_input = st.text_area(
+            "Ticket List B",
+            placeholder="Enter ticket numbers separated by commas or newlines",
+            height=150
+        )
+    
+    if st.button("Compare Tickets"):
+        def parse_ticket_list(text):
+            text = text.replace(',', '\n')
+            tickets = [line.strip() for line in text.splitlines() if line.strip()]
+            return set(tickets)
+        
+        tickets_a = parse_ticket_list(list_a_input)
+        tickets_b = parse_ticket_list(list_b_input)
+        
+        missing_in_b = tickets_a - tickets_b
+        missing_in_a = tickets_b - tickets_a
+        common_tickets = tickets_a.intersection(tickets_b)
+        
+        st.subheader("Comparison Results")
+        
+        st.markdown("### Tickets in List A but missing in List B:")
+        if missing_in_b:
+            st.write(", ".join(sorted(missing_in_b)))
+        else:
+            st.write("None")
+        
+        st.markdown("### Tickets in List B but missing in List A:")
+        if missing_in_a:
+            st.write(", ".join(sorted(missing_in_a)))
+        else:
+            st.write("None")
+        
+        st.markdown("### Tickets in Both Lists with Status")
+        if common_tickets:
+            try:
+                placeholders = ','.join('?' for _ in common_tickets)
+                query = f"SELECT ticket_number, status FROM tickets WHERE ticket_number IN ({placeholders})"
+                df_status = pd.read_sql(query, conn, params=list(common_tickets))
+                if not df_status.empty:
+                    df_status['status'] = df_status['status'].apply(ui_status_from_db)
+                    st.dataframe(df_status)
+                else:
+                    st.write("None of the common tickets were found in the database.")
+            except Exception as e:
+                st.error(f"Error fetching ticket statuses: {e}")
+        else:
+            st.write("No common tickets between the two lists.")
+
+# -----------------------------------------------------------
 # Batches Page (New Page for batch tiles)
 # -----------------------------------------------------------
-def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
-    with st.container():
-        st.markdown(f"""
-        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-          <h4>{batch_name}</h4>
-          <p>Total Tickets: {total_tickets}</p>
-          <p>Status: {status}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        # "Edit Status" button using a composite key for uniqueness
-        if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
-            st.session_state.edit_batch = batch_name
-        # "Copy Tickets" button using a unique key and a custom HTML snippet for clipboard copying
-        if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
-            # Create an HTML snippet that places the ticket numbers into a hidden text input
-            # and includes a button to copy that text to the clipboard
-            html_code = f"""
-            <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
-            <button onclick="copyText_{unique_key}()">Click to Copy Tickets</button>
-            <script>
-            function copyText_{unique_key}() {{
-                var copyText = document.getElementById("copyInput_{unique_key}");
-                copyText.select();
-                document.execCommand("copy");
-                alert("Copied tickets: " + copyText.value);
-            }}
-            </script>
-            """
-            components.html(html_code, height=50)
-
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
@@ -693,6 +728,34 @@ def batch_view_page():
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
                 st.session_state.edit_batch = None  # Clear the edit flag
 
+def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
+    with st.container():
+        st.markdown(f"""
+        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
+          <h4>{batch_name}</h4>
+          <p>Total Tickets: {total_tickets}</p>
+          <p>Status: {status}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        # "Edit Status" button using a composite key for uniqueness
+        if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
+            st.session_state.edit_batch = batch_name
+        # "Copy Tickets" button using a unique key and a custom HTML snippet for clipboard copying
+        if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
+            html_code = f"""
+            <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
+            <button onclick="copyText_{unique_key}()">Click to Copy Tickets</button>
+            <script>
+            function copyText_{unique_key}() {{
+                var copyText = document.getElementById("copyInput_{unique_key}");
+                copyText.select();
+                document.execCommand("copy");
+                alert("Copied tickets: " + copyText.value);
+            }}
+            </script>
+            """
+            components.html(html_code, height=50)
+
 # -----------------------------------------------------------
 # Income Page
 # -----------------------------------------------------------
@@ -712,7 +775,6 @@ def income_page():
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
     
-    # Query delivered earnings (amount received)
     query_delivered = """
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
@@ -723,7 +785,6 @@ def income_page():
     """
     df_income = pd.read_sql(query_delivered, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
     
-    # Query pending earnings (potential income from non-delivered tickets)
     query_pending = """
         SELECT SUM(num_sub_tickets * pay) AS pending_income
         FROM tickets
@@ -733,11 +794,9 @@ def income_page():
     pending_income = df_pending.iloc[0]['pending_income'] or 0
 
     if not df_income.empty:
-        # Prepare data
         df_income['date'] = pd.to_datetime(df_income['date'])
         df_income.sort_values("date", inplace=True)
         
-        # Plot daily earnings trend
         fig = px.area(df_income, x="date", y="day_earnings", title="Daily Earnings Trend",
                       labels={"day_earnings": "Earnings ($)", "date": "Date"},
                       color_discrete_sequence=["#4CAF50"])
@@ -751,7 +810,6 @@ def income_page():
         st.metric("Pending Income", f"${pending_income:,.2f}")
         st.metric("Total Potential Income", f"${total_received + pending_income:,.2f}")
         
-        # Forecast next 7 days using simple linear regression
         if len(df_income) > 1:
             df_income["date_num"] = df_income["date"].map(datetime.datetime.toordinal)
             x = df_income["date_num"].values
@@ -763,7 +821,6 @@ def income_page():
             forecast_x = [d.toordinal() for d in forecast_dates]
             forecast_y = poly(forecast_x)
             
-            # Add forecast trace to the figure
             fig.add_trace(go.Scatter(x=forecast_dates, y=forecast_y, mode='lines+markers', name="Forecast"))
             st.plotly_chart(fig, use_container_width=True)
             
@@ -787,7 +844,6 @@ def ai_analysis_page():
     st.markdown("## 🤖 AI Analysis")
     st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
     
-    # Overall statistics
     total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
     total_tickets = total_tickets_df.iloc[0]['total'] or 0
     total_delivered_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total_delivered FROM tickets WHERE status='Delivered'", conn)
@@ -798,10 +854,8 @@ def ai_analysis_page():
     st.metric("Total Delivered", total_delivered)
     st.metric("Delivery Conversion Rate (%)", f"{conversion_rate:.2f}%")
     
-    # Create tabs for different advanced analysis components
     tab1, tab2, tab3, tab4 = st.tabs(["Daily Trend & Forecast", "Weekday Analysis", "Calendar Heatmap", "Anomaly Detection"])
     
-    # Tab 1: Daily Trend and Forecast
     with tab1:
         df_trend = pd.read_sql(
             "SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date",
@@ -815,7 +869,6 @@ def ai_analysis_page():
             avg_delivered = df_trend['delivered'].mean()
             st.write(f"On average, you deliver about {avg_delivered:.1f} tickets per day.")
             
-            # Forecasting next 7 days using simple linear regression
             df_trend = df_trend.sort_values("date")
             df_trend["date_num"] = df_trend["date"].map(datetime.datetime.toordinal)
             x = df_trend["date_num"].values
@@ -840,7 +893,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for daily trend analysis.")
     
-    # Tab 2: Weekday Analysis
     with tab2:
         df_status = pd.read_sql(
             "SELECT date, status, SUM(num_sub_tickets) as count FROM tickets GROUP BY date, status",
@@ -872,14 +924,12 @@ def ai_analysis_page():
         else:
             st.info("No ticket data available for weekday analysis.")
     
-    # Tab 3: Calendar Heatmap
     with tab3:
         df_delivered = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
         if not df_delivered.empty:
             df_delivered['date'] = pd.to_datetime(df_delivered['date'])
             df_delivered['week'] = df_delivered['date'].dt.isocalendar().week
             df_delivered['weekday'] = df_delivered['date'].dt.day_name()
-            # Create a pivot table with weekdays as rows and week numbers as columns
             weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             heatmap_data = df_delivered.pivot_table(index='weekday', columns='week', values='delivered', fill_value=0)
             heatmap_data = heatmap_data.reindex(weekday_order)
@@ -895,7 +945,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for calendar heatmap.")
     
-    # Tab 4: Anomaly Detection
     with tab4:
         df_anomaly = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
         if not df_anomaly.empty:
@@ -916,7 +965,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for anomaly detection.")
     
-    # Basic operational recommendations
     st.subheader("Recommendations")
     if conversion_rate < 50:
         st.info("Your delivery conversion rate is below 50%. Consider strategies to improve ticket delivery, such as follow-up reminders or quality control checks.")
@@ -936,7 +984,6 @@ def backup_restore_page():
     st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
     
     st.subheader("Download Options")
-    # Download SQLite database
     try:
         with open("ticket_management.db", "rb") as db_file:
             db_bytes = db_file.read()
@@ -944,7 +991,6 @@ def backup_restore_page():
     except Exception as e:
         st.error("Database file not found.")
     
-    # Export to Excel
     df_tickets = pd.read_sql("SELECT * FROM tickets", conn)
     if not df_tickets.empty:
         towrite = BytesIO()
@@ -962,7 +1008,6 @@ def backup_restore_page():
     if uploaded_excel is not None:
         try:
             df_restore = pd.read_excel(uploaded_excel)
-            # Validate required columns
             required_columns = {"date", "time", "batch_name", "ticket_number", "num_sub_tickets", "status", "pay", "comments", "ticket_day", "ticket_school"}
             if not required_columns.issubset(set(df_restore.columns)):
                 st.error("Uploaded Excel file does not contain the required columns.")
@@ -980,19 +1025,14 @@ def backup_restore_page():
     uploaded_db = st.file_uploader("Choose a .db file", type=["db"])
     if uploaded_db is not None:
         try:
-            # Overwrite the current database file with the uploaded file
             with open("ticket_management.db", "wb") as f:
                 f.write(uploaded_db.getbuffer())
             st.success("Database restored successfully from uploaded .db file!")
-            # Close the current connection and reinitialize it
             conn.close()
             conn = get_db_connection()
-            # Rerun the app to load the new data
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Error restoring database from .db file: {e}")
-
-
 
 # -----------------------------------------------------------
 # Settings Page
@@ -1042,6 +1082,7 @@ def main():
         "Add Tickets": add_tickets_page,
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
+        "Bulk Ticket Comparison": bulk_ticket_comparison_page,
         "Income": income_page,
         "Batches": batch_view_page,
         "AI Analysis": ai_analysis_page,
