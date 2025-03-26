@@ -215,13 +215,13 @@ def dashboard_page():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
                                    mode='lines+markers', name='Delivered',
-                                   line=dict(color='#2196F3', width=3), fill='tozeroy'))
+                                   line=dict(width=3), fill='tozeroy'))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['ready'],
                                    mode='lines+markers', name='Ready to Deliver',
-                                   line=dict(color='#FF9800', width=3)))
+                                   line=dict(width=3)))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['intake'],
                                    mode='lines+markers', name='Intake',
-                                   line=dict(color='#4CAF50', width=3, dash='dot')))
+                                   line=dict(width=3, dash='dot')))
         fig.update_layout(title='Daily Ticket Activity', xaxis_title='Date', yaxis_title='Number of Tickets',
                           hovermode='x unified', template='plotly_white', height=500)
         st.plotly_chart(fig, use_container_width=True)
@@ -229,8 +229,7 @@ def dashboard_page():
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
         fig2 = px.bar(df_daily, x='date', y='delivered_value',
                       title="Daily Delivery Earnings",
-                      labels={'delivered_value': 'Earnings ($)', 'date': 'Date'},
-                      color_discrete_sequence=['#4CAF50'])
+                      labels={'delivered_value': 'Earnings ($)', 'date': 'Date'})
         fig2.update_layout(height=400)
         st.plotly_chart(fig2, use_container_width=True)
     else:
@@ -247,10 +246,10 @@ def dashboard_page():
             value=conversion_rate,
             title={'text': "Delivery Rate"},
             gauge={'axis': {'range': [0, 100]},
-                   'bar': {'color': "#4CAF50"},
-                   'steps': [{'range': [0, 33], 'color': "#FFCDD2"},
-                             {'range': [33, 66], 'color': "#FFECB3"},
-                             {'range': [66, 100], 'color': "#C8E6C9"}]}
+                   'bar': {'color': "green"},
+                   'steps': [{'range': [0, 33], 'color': "lightgray"},
+                             {'range': [33, 66], 'color': "gray"},
+                             {'range': [66, 100], 'color': "darkgray"}]}
         ))
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
@@ -260,11 +259,7 @@ def dashboard_page():
         if not df_status.empty:
             df_status['status_ui'] = df_status['status'].apply(ui_status_from_db)
             fig_pie = px.pie(df_status, values='count', names='status_ui',
-                             title="Ticket Status Distribution",
-                             color='status_ui',
-                             color_discrete_map={'Intake': '#4CAF50',
-                                                 'Ready to Deliver': '#FF9800',
-                                                 'Delivered': '#2196F3'})
+                             title="Ticket Status Distribution")
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             fig_pie.update_layout(height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
@@ -583,6 +578,17 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
+# BULK TICKET COMPARISON PAGE (Placeholder to fix NameError)
+# -----------------------------------------------------------
+def bulk_ticket_comparison_page():
+    """
+    Placeholder function to avoid NameError. 
+    You can implement your actual 'Bulk Ticket Comparison' logic here.
+    """
+    st.markdown("## 🔍 Bulk Ticket Comparison")
+    st.write("This page is under construction. Stay tuned for updates!")
+
+# -----------------------------------------------------------
 # SQL Query Converter Page
 # -----------------------------------------------------------
 def sql_query_converter_page():
@@ -769,8 +775,7 @@ def income_page():
         df_income.sort_values("date", inplace=True)
         
         fig = px.area(df_income, x="date", y="day_earnings", title="Daily Earnings Trend",
-                      labels={"day_earnings": "Earnings ($)", "date": "Date"},
-                      color_discrete_sequence=["#4CAF50"])
+                      labels={"day_earnings": "Earnings ($)", "date": "Date"})
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Detailed Earnings")
@@ -1053,6 +1058,7 @@ def main():
         "Add Tickets": add_tickets_page,
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
+        # We now include our placeholder function to avoid NameError
         "Bulk Ticket Comparison": bulk_ticket_comparison_page,
         "SQL Query Converter": sql_query_converter_page,
         "Income": income_page,
