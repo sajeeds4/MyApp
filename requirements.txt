@@ -1,7 +1,9 @@
-streamlit>=1.0.0
-pandas>=1.0.0
-requests>=2.0.0
-streamlit-lottie>=0.0.1
-plotly>=5.0.0
-XlsxWriter>=1.0.0
+streamlit
+pandas
+requests
+streamlit-lottie
+plotly
 numpy
+selenium
+beautifulsoup4
+xlsxwriter
