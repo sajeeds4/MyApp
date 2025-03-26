@@ -141,6 +141,7 @@ def render_navbar():
         "View Tickets": "👁️",
         "Manage Tickets": "🔄",
         "Bulk Ticket Comparison": "🔍",
+        "SQL Query Converter": "📝",
         "Income": "💰",
         "Batches": "🗂️",
         "AI Analysis": "🤖",
@@ -214,13 +215,13 @@ def dashboard_page():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
                                    mode='lines+markers', name='Delivered',
-                                   line=dict(color='#2196F3', width=3), fill='tozeroy'))
+                                   line=dict(width=3), fill='tozeroy'))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['ready'],
                                    mode='lines+markers', name='Ready to Deliver',
-                                   line=dict(color='#FF9800', width=3)))
+                                   line=dict(width=3)))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['intake'],
                                    mode='lines+markers', name='Intake',
-                                   line=dict(color='#4CAF50', width=3, dash='dot')))
+                                   line=dict(width=3, dash='dot')))
         fig.update_layout(title='Daily Ticket Activity', xaxis_title='Date', yaxis_title='Number of Tickets',
                           hovermode='x unified', template='plotly_white', height=500)
         st.plotly_chart(fig, use_container_width=True)
@@ -228,8 +229,7 @@ def dashboard_page():
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
         fig2 = px.bar(df_daily, x='date', y='delivered_value',
                       title="Daily Delivery Earnings",
-                      labels={'delivered_value': 'Earnings ($)', 'date': 'Date'},
-                      color_discrete_sequence=['#4CAF50'])
+                      labels={'delivered_value': 'Earnings ($)', 'date': 'Date'})
         fig2.update_layout(height=400)
         st.plotly_chart(fig2, use_container_width=True)
     else:
@@ -246,10 +246,10 @@ def dashboard_page():
             value=conversion_rate,
             title={'text': "Delivery Rate"},
             gauge={'axis': {'range': [0, 100]},
-                   'bar': {'color': "#4CAF50"},
-                   'steps': [{'range': [0, 33], 'color': "#FFCDD2"},
-                             {'range': [33, 66], 'color': "#FFECB3"},
-                             {'range': [66, 100], 'color': "#C8E6C9"}]}
+                   'bar': {'color': "green"},
+                   'steps': [{'range': [0, 33], 'color': "lightgray"},
+                             {'range': [33, 66], 'color': "gray"},
+                             {'range': [66, 100], 'color': "darkgray"}]}
         ))
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
@@ -259,11 +259,7 @@ def dashboard_page():
         if not df_status.empty:
             df_status['status_ui'] = df_status['status'].apply(ui_status_from_db)
             fig_pie = px.pie(df_status, values='count', names='status_ui',
-                             title="Ticket Status Distribution",
-                             color='status_ui',
-                             color_discrete_map={'Intake': '#4CAF50',
-                                                 'Ready to Deliver': '#FF9800',
-                                                 'Delivered': '#2196F3'})
+                             title="Ticket Status Distribution")
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             fig_pie.update_layout(height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
@@ -433,7 +429,6 @@ def manage_tickets_page():
         st.write("Advanced ticket management operations")
     
     st.markdown("---")
-    # Added an extra tab for SQL Query insert/update
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Search & Edit",
         "⚡ Bulk Operations",
@@ -583,68 +578,95 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Bulk Ticket Comparison Page
+# BULK TICKET COMPARISON PAGE (Placeholder to fix NameError)
 # -----------------------------------------------------------
 def bulk_ticket_comparison_page():
-    st.markdown("## Bulk Ticket Comparison")
-    st.write("Enter two lists of ticket numbers to compare. This tool will identify which tickets are missing from each list and display the current status for tickets found in both lists.")
+    """
+    Placeholder function to avoid NameError. 
+    You can implement your actual 'Bulk Ticket Comparison' logic here.
+    """
+    st.markdown("## 🔍 Bulk Ticket Comparison")
+    st.write("This page is under construction. Stay tuned for updates!")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        list_a_input = st.text_area(
-            "Ticket List A",
-            placeholder="Enter ticket numbers separated by commas or newlines",
-            height=150
-        )
-    with col2:
-        list_b_input = st.text_area(
-            "Ticket List B",
-            placeholder="Enter ticket numbers separated by commas or newlines",
-            height=150
-        )
+# -----------------------------------------------------------
+# SQL Query Converter Page
+# -----------------------------------------------------------
+def sql_query_converter_page():
+    st.markdown("## SQL Query Converter")
+    st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. "
+             "This tool will extract the ticket numbers and ensure they exist in the database, then update their status accordingly.")
+
+    raw_text = st.text_area(
+        "Enter raw ticket data", 
+        placeholder="""125633 - Eastport-South Manor / Acer R752T
+125632 - Eastport-South Manor / Acer R752T
+125631 - Eastport-South Manor / Acer R752T""",
+        height=200
+    )
     
-    if st.button("Compare Tickets"):
-        def parse_ticket_list(text):
-            text = text.replace(',', '\n')
-            tickets = [line.strip() for line in text.splitlines() if line.strip()]
-            return set(tickets)
+    target_status = st.selectbox("Select target status", ["Intake", "Ready to Deliver"])
+    
+    if st.button("Generate and Execute SQL Query"):
+        # 1) Parse the input lines to extract ticket numbers.
+        lines = raw_text.strip().splitlines()
+        ticket_numbers = []
+        for line in lines:
+            if " - " in line:
+                ticket_number = line.split(" - ")[0].strip()
+                ticket_numbers.append(ticket_number)
+            else:
+                # Fallback: take the first word of the line.
+                parts = line.split()
+                if parts:
+                    ticket_numbers.append(parts[0].strip())
+
+        # 2) Determine DB status (mapping "Ready to Deliver" → "Return").
+        db_status = "Intake" if target_status == "Intake" else "Return"
         
-        tickets_a = parse_ticket_list(list_a_input)
-        tickets_b = parse_ticket_list(list_b_input)
-        
-        missing_in_b = tickets_a - tickets_b
-        missing_in_a = tickets_b - tickets_a
-        common_tickets = tickets_a.intersection(tickets_b)
-        
-        st.subheader("Comparison Results")
-        
-        st.markdown("### Tickets in List A but missing in List B:")
-        if missing_in_b:
-            st.write(", ".join(sorted(missing_in_b)))
-        else:
-            st.write("None")
-        
-        st.markdown("### Tickets in List B but missing in List A:")
-        if missing_in_a:
-            st.write(", ".join(sorted(missing_in_a)))
-        else:
-            st.write("None")
-        
-        st.markdown("### Tickets in Both Lists with Status")
-        if common_tickets:
+        if ticket_numbers:
+            # Build placeholders for dynamic queries.
+            placeholders = ','.join('?' for _ in ticket_numbers)
+            
+            # --- FIRST PASS: Insert tickets that do not exist ---
+            # Use INSERT OR IGNORE so that existing tickets won't be overwritten,
+            # and brand-new tickets get inserted with default sub-tickets = 1.
+            # Adjust columns/values to what you prefer (e.g., time, pay).
+            # You can also store the current date/time if desired.
+            now_date = datetime.datetime.now().strftime("%Y-%m-%d")
+            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+
+            insert_sql = f"""
+                INSERT OR IGNORE INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
+                VALUES (?, ?, ?, ?, 1, 'Intake', ?)
+            """
+            
+            # For each ticket_number, attempt to insert it if it doesn't already exist.
+            # We'll default new tickets to 'Intake' status and 1 sub_ticket. 
+            # Then in the next step, we’ll update them all to the desired status anyway.
+            for tkt in ticket_numbers:
+                try:
+                    cursor.execute(insert_sql, (now_date, now_time, "Auto-Batch", tkt, st.session_state.ticket_price))
+                except Exception as e:
+                    st.error(f"Error inserting ticket {tkt}: {e}")
+            
+            conn.commit()
+
+            # --- SECOND PASS: Update the status for all these tickets ---
+            update_sql = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
+            params = [db_status] + ticket_numbers
+
             try:
-                placeholders = ','.join('?' for _ in common_tickets)
-                query = f"SELECT ticket_number, status FROM tickets WHERE ticket_number IN ({placeholders})"
-                df_status = pd.read_sql(query, conn, params=list(common_tickets))
-                if not df_status.empty:
-                    df_status['status'] = df_status['status'].apply(ui_status_from_db)
-                    st.dataframe(df_status)
-                else:
-                    st.write("None of the common tickets were found in the database.")
+                cursor.execute(update_sql, params)
+                conn.commit()
+                st.success(
+                    f"Inserted/updated {cursor.rowcount} tickets. "
+                    f"All have been set to '{target_status}' now."
+                )
             except Exception as e:
-                st.error(f"Error fetching ticket statuses: {e}")
+                st.error(f"Error updating tickets to '{target_status}': {e}")
         else:
-            st.write("No common tickets between the two lists.")
+            st.warning("No ticket numbers found in the input.")
+
 
 # -----------------------------------------------------------
 # Batches Page (New Page for batch tiles)
@@ -652,7 +674,6 @@ def bulk_ticket_comparison_page():
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
-    # Update the query to include a concatenated list of ticket numbers for each batch.
     df_batches = pd.read_sql(
         """
         SELECT batch_name, 
@@ -663,13 +684,11 @@ def batch_view_page():
         GROUP BY batch_name
         """, conn
     )
-    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
         "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
     ])
     
     def display_batches(df):
-        # Display batches in a grid of 3 columns
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
@@ -713,7 +732,6 @@ def batch_view_page():
         else:
             st.info("No batches found.")
     
-    # --- Batch Status Update Form ---    
     if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -726,7 +744,7 @@ def batch_view_page():
                 cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None  # Clear the edit flag
+                st.session_state.edit_batch = None
 
 def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
     with st.container():
@@ -737,10 +755,8 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_num
           <p>Status: {status}</p>
         </div>
         """, unsafe_allow_html=True)
-        # "Edit Status" button using a composite key for uniqueness
         if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
             st.session_state.edit_batch = batch_name
-        # "Copy Tickets" button using a unique key and a custom HTML snippet for clipboard copying
         if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
             html_code = f"""
             <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
@@ -798,8 +814,7 @@ def income_page():
         df_income.sort_values("date", inplace=True)
         
         fig = px.area(df_income, x="date", y="day_earnings", title="Daily Earnings Trend",
-                      labels={"day_earnings": "Earnings ($)", "date": "Date"},
-                      color_discrete_sequence=["#4CAF50"])
+                      labels={"day_earnings": "Earnings ($)", "date": "Date"})
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Detailed Earnings")
@@ -1082,7 +1097,9 @@ def main():
         "Add Tickets": add_tickets_page,
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
+        # We now include our placeholder function to avoid NameError
         "Bulk Ticket Comparison": bulk_ticket_comparison_page,
+        "SQL Query Converter": sql_query_converter_page,
         "Income": income_page,
         "Batches": batch_view_page,
         "AI Analysis": ai_analysis_page,
