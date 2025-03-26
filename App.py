@@ -10,6 +10,13 @@ from io import BytesIO
 import numpy as np
 import streamlit.components.v1 as components
 
+# For barcode scanning with Selenium and BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup
+import time
+import os
+
 # -----------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------
@@ -102,7 +109,6 @@ def setup_database():
         batch_name TEXT,
         ticket_number TEXT UNIQUE,
         num_sub_tickets INTEGER DEFAULT 1,
-        -- In the DB, "Return" means the ticket is ready to deliver.
         status TEXT DEFAULT 'Intake',
         pay REAL DEFAULT 5.5,
         comments TEXT DEFAULT '',
@@ -120,19 +126,56 @@ cursor = conn.cursor()
 # Utility: Status Mapping (DB ↔ UI)
 # -----------------------------------------------------------
 def db_status_from_ui(status_ui: str) -> str:
-    """Convert the user-facing status to the DB value."""
     if status_ui == "Ready to Deliver":
         return "Return"
     return status_ui
 
 def ui_status_from_db(status_db: str) -> str:
-    """Convert the DB status to the user-facing label."""
     if status_db == "Return":
         return "Ready to Deliver"
     return status_db
 
 # -----------------------------------------------------------
-# Navigation (Add new pages to navigation)
+# Selenium Setup for Barcode Scanning
+# -----------------------------------------------------------
+def setup_selenium():
+    chrome_options = Options()
+    # Update the following path with your actual Chrome user data path
+    chrome_options.add_argument("--user-data-dir=C:\\Users\\Gulam\\AppData\\Local\\Google\\Chrome\\User Data")
+    chrome_options.add_argument("--profile-directory=Default")
+    chrome_options.add_argument("--disable-extensions")
+    driver = webdriver.Chrome(options=chrome_options)
+    return driver
+
+def get_ticket_details(barcode_value):
+    ticket_id = barcode_value.split("-")[-1]
+    url = f"https://cellmechanic.repairshopr.com/tickets/{ticket_id}"
+    
+    driver = setup_selenium()
+    try:
+        driver.get(url)
+        time.sleep(2)  # Allow page to load. Consider using explicit waits for production.
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        ticket_number_div = soup.find('div', class_='col-md-4')
+        ticket_number = ticket_number_div.find('h1').text.strip() if ticket_number_div else "Not Found"
+        
+        school_div = soup.find('div', class_='col-sm-12')
+        school_text = school_div.find('h3', class_='large').text.strip() if school_div else "Not Found"
+        
+        school_name = school_text.split("/")[0].strip() if "/" in school_text else school_text
+        device_model = school_text.split("/")[-1].strip() if "/" in school_text else ""
+        
+        return {
+            'ticket_number': ticket_number.replace("#", ""),
+            'school_name': school_name,
+            'device_model': device_model
+        }
+    finally:
+        driver.quit()
+
+# -----------------------------------------------------------
+# Navigation (Navbar)
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -144,7 +187,8 @@ def render_navbar():
         "Batches": "🗂️",
         "AI Analysis": "🤖",
         "Backup & Restore": "💾",
-        "Settings": "⚙️"
+        "Settings": "⚙️",
+        "Barcode Scan": "📟"
     }
     st.markdown(f"""
     <div style="padding: 10px; background-color: #ffffff; border-radius: 8px; margin-bottom: 20px;">
@@ -160,7 +204,6 @@ def render_navbar():
 # Dashboard Page
 # -----------------------------------------------------------
 def dashboard_page():
-    # Top animation and title
     col_anim, col_title = st.columns([1, 5])
     with col_anim:
         if animations["dashboard"]:
@@ -169,7 +212,6 @@ def dashboard_page():
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
     
-    # Totals are computed by summing num_sub_tickets
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
     total_intake = cursor.fetchone()[0] or 0
     cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
@@ -182,14 +224,12 @@ def dashboard_page():
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display key metrics (Overall, Intake, Ready, Delivered)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
     col3.metric("Ready to Deliver", f"{int(total_ready)}", f"${total_ready * st.session_state.ticket_price:.2f}")
     col4.metric("Total Delivered", f"{int(total_delivered)}", f"${actual_earnings:.2f}")
 
-    # Date Range Analysis
     st.subheader("📅 Date Range Analysis")
     col_date1, col_date2 = st.columns(2)
     with col_date1:
@@ -234,7 +274,6 @@ def dashboard_page():
     else:
         st.info("No data available for selected date range")
     
-    # Performance Statistics: Gauge and Pie Chart
     st.subheader("📈 Performance Statistics")
     col_stat1, col_stat2 = st.columns(2)
     with col_stat1:
@@ -269,7 +308,6 @@ def dashboard_page():
         else:
             st.info("No status data available")
     
-    # Recent Activity Table
     st.subheader("⏱️ Recent Activity")
     df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
@@ -432,7 +470,6 @@ def manage_tickets_page():
         st.write("Advanced ticket management operations")
     
     st.markdown("---")
-    # Added an extra tab for SQL Query insert/update
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Search & Edit",
         "⚡ Bulk Operations",
@@ -441,7 +478,6 @@ def manage_tickets_page():
         "💻 SQL Query"
     ])
     
-    # Tab 1: Search & Edit (Individual Ticket)
     with tab1:
         st.subheader("Individual Ticket Management")
         ticket_number = st.text_input("Enter Ticket Number to Manage")
@@ -465,7 +501,6 @@ def manage_tickets_page():
             else:
                 st.warning("Ticket not found in database")
     
-    # Tab 2: Bulk Operations
     with tab2:
         st.subheader("Bulk Operations")
         bulk_tickets = st.text_area("Enter Ticket Numbers (one per line)", help="Enter one ticket number per line")
@@ -507,7 +542,6 @@ def manage_tickets_page():
                         conn.commit()
                         st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
     
-    # Tab 3: Delete Tickets
     with tab3:
         st.subheader("Ticket Deletion")
         delete_option = st.radio("Deletion Method", ["Single Ticket", "By Batch", "By Date Range"])
@@ -537,7 +571,6 @@ def manage_tickets_page():
                 conn.commit()
                 st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
     
-    # Tab 4: Manage Tickets By Batch
     with tab4:
         st.subheader("Manage Tickets By Batch Name")
         cursor.execute("SELECT DISTINCT batch_name FROM tickets")
@@ -561,7 +594,6 @@ def manage_tickets_page():
         else:
             st.info("No batches found in the database.")
     
-    # Tab 5: Custom SQL Query Insert/Update
     with tab5:
         st.subheader("Custom SQL Query Insert/Update")
         st.write("Enter a valid SQL query (only INSERT or UPDATE queries are allowed) to update the tickets table. "
@@ -582,7 +614,7 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# Batches Page (New Page for batch tiles)
+# Batches Page
 # -----------------------------------------------------------
 def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
     with st.container():
@@ -593,13 +625,9 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_num
           <p>Status: {status}</p>
         </div>
         """, unsafe_allow_html=True)
-        # "Edit Status" button using a composite key for uniqueness
         if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
             st.session_state.edit_batch = batch_name
-        # "Copy Tickets" button using a unique key and a custom HTML snippet for clipboard copying
         if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
-            # Create an HTML snippet that places the ticket numbers into a hidden text input
-            # and includes a button to copy that text to the clipboard
             html_code = f"""
             <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
             <button onclick="copyText_{unique_key}()">Click to Copy Tickets</button>
@@ -617,7 +645,6 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_num
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
-    # Update the query to include a concatenated list of ticket numbers for each batch.
     df_batches = pd.read_sql(
         """
         SELECT batch_name, 
@@ -628,13 +655,11 @@ def batch_view_page():
         GROUP BY batch_name
         """, conn
     )
-    # Create four tabs: Intake, Ready to Deliver, Delivered, and All
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
         "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
     ])
     
     def display_batches(df):
-        # Display batches in a grid of 3 columns
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
@@ -678,7 +703,6 @@ def batch_view_page():
         else:
             st.info("No batches found.")
     
-    # --- Batch Status Update Form ---    
     if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -691,7 +715,7 @@ def batch_view_page():
                 cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
                 conn.commit()
                 st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None  # Clear the edit flag
+                st.session_state.edit_batch = None
 
 # -----------------------------------------------------------
 # Income Page
@@ -712,7 +736,6 @@ def income_page():
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
     
-    # Query delivered earnings (amount received)
     query_delivered = """
         SELECT date,
                SUM(num_sub_tickets * pay) AS day_earnings
@@ -723,7 +746,6 @@ def income_page():
     """
     df_income = pd.read_sql(query_delivered, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
     
-    # Query pending earnings (potential income from non-delivered tickets)
     query_pending = """
         SELECT SUM(num_sub_tickets * pay) AS pending_income
         FROM tickets
@@ -733,11 +755,9 @@ def income_page():
     pending_income = df_pending.iloc[0]['pending_income'] or 0
 
     if not df_income.empty:
-        # Prepare data
         df_income['date'] = pd.to_datetime(df_income['date'])
         df_income.sort_values("date", inplace=True)
         
-        # Plot daily earnings trend
         fig = px.area(df_income, x="date", y="day_earnings", title="Daily Earnings Trend",
                       labels={"day_earnings": "Earnings ($)", "date": "Date"},
                       color_discrete_sequence=["#4CAF50"])
@@ -751,7 +771,6 @@ def income_page():
         st.metric("Pending Income", f"${pending_income:,.2f}")
         st.metric("Total Potential Income", f"${total_received + pending_income:,.2f}")
         
-        # Forecast next 7 days using simple linear regression
         if len(df_income) > 1:
             df_income["date_num"] = df_income["date"].map(datetime.datetime.toordinal)
             x = df_income["date_num"].values
@@ -763,7 +782,6 @@ def income_page():
             forecast_x = [d.toordinal() for d in forecast_dates]
             forecast_y = poly(forecast_x)
             
-            # Add forecast trace to the figure
             fig.add_trace(go.Scatter(x=forecast_dates, y=forecast_y, mode='lines+markers', name="Forecast"))
             st.plotly_chart(fig, use_container_width=True)
             
@@ -781,13 +799,12 @@ def income_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# AI Analysis Page (New)
+# AI Analysis Page
 # -----------------------------------------------------------
 def ai_analysis_page():
     st.markdown("## 🤖 AI Analysis")
     st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
     
-    # Overall statistics
     total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
     total_tickets = total_tickets_df.iloc[0]['total'] or 0
     total_delivered_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total_delivered FROM tickets WHERE status='Delivered'", conn)
@@ -798,10 +815,8 @@ def ai_analysis_page():
     st.metric("Total Delivered", total_delivered)
     st.metric("Delivery Conversion Rate (%)", f"{conversion_rate:.2f}%")
     
-    # Create tabs for different advanced analysis components
     tab1, tab2, tab3, tab4 = st.tabs(["Daily Trend & Forecast", "Weekday Analysis", "Calendar Heatmap", "Anomaly Detection"])
     
-    # Tab 1: Daily Trend and Forecast
     with tab1:
         df_trend = pd.read_sql(
             "SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date",
@@ -815,7 +830,6 @@ def ai_analysis_page():
             avg_delivered = df_trend['delivered'].mean()
             st.write(f"On average, you deliver about {avg_delivered:.1f} tickets per day.")
             
-            # Forecasting next 7 days using simple linear regression
             df_trend = df_trend.sort_values("date")
             df_trend["date_num"] = df_trend["date"].map(datetime.datetime.toordinal)
             x = df_trend["date_num"].values
@@ -840,7 +854,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for daily trend analysis.")
     
-    # Tab 2: Weekday Analysis
     with tab2:
         df_status = pd.read_sql(
             "SELECT date, status, SUM(num_sub_tickets) as count FROM tickets GROUP BY date, status",
@@ -872,14 +885,12 @@ def ai_analysis_page():
         else:
             st.info("No ticket data available for weekday analysis.")
     
-    # Tab 3: Calendar Heatmap
     with tab3:
         df_delivered = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
         if not df_delivered.empty:
             df_delivered['date'] = pd.to_datetime(df_delivered['date'])
             df_delivered['week'] = df_delivered['date'].dt.isocalendar().week
             df_delivered['weekday'] = df_delivered['date'].dt.day_name()
-            # Create a pivot table with weekdays as rows and week numbers as columns
             weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             heatmap_data = df_delivered.pivot_table(index='weekday', columns='week', values='delivered', fill_value=0)
             heatmap_data = heatmap_data.reindex(weekday_order)
@@ -895,7 +906,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for calendar heatmap.")
     
-    # Tab 4: Anomaly Detection
     with tab4:
         df_anomaly = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
         if not df_anomaly.empty:
@@ -916,7 +926,6 @@ def ai_analysis_page():
         else:
             st.info("No delivered ticket data available for anomaly detection.")
     
-    # Basic operational recommendations
     st.subheader("Recommendations")
     if conversion_rate < 50:
         st.info("Your delivery conversion rate is below 50%. Consider strategies to improve ticket delivery, such as follow-up reminders or quality control checks.")
@@ -928,14 +937,13 @@ def ai_analysis_page():
     st.write("Keep monitoring your performance regularly to identify trends and optimize your operations.")
 
 # -----------------------------------------------------------
-# Backup & Restore Page (New)
+# Backup & Restore Page
 # -----------------------------------------------------------
 def backup_restore_page():
     st.markdown("## 💾 Backup & Restore")
     st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
     
     st.subheader("Download Options")
-    # Download SQLite database
     try:
         with open("ticket_management.db", "rb") as db_file:
             db_bytes = db_file.read()
@@ -943,7 +951,6 @@ def backup_restore_page():
     except Exception as e:
         st.error("Database file not found.")
     
-    # Export to Excel
     df_tickets = pd.read_sql("SELECT * FROM tickets", conn)
     if not df_tickets.empty:
         towrite = BytesIO()
@@ -961,7 +968,6 @@ def backup_restore_page():
     if uploaded_excel is not None:
         try:
             df_restore = pd.read_excel(uploaded_excel)
-            # Validate required columns
             required_columns = {"date", "time", "batch_name", "ticket_number", "num_sub_tickets", "status", "pay", "comments", "ticket_day", "ticket_school"}
             if not required_columns.issubset(set(df_restore.columns)):
                 st.error("Uploaded Excel file does not contain the required columns.")
@@ -979,15 +985,11 @@ def backup_restore_page():
     uploaded_db = st.file_uploader("Choose a .db file", type=["db"])
     if uploaded_db is not None:
         try:
-            # Overwrite the current database file with the uploaded file
             with open("ticket_management.db", "wb") as f:
                 f.write(uploaded_db.getbuffer())
             st.success("Database restored successfully from uploaded .db file!")
-            # Optionally, close the current connection and reinitialize
             conn.close()
-            # Reinitialize the connection so the changes take effect
             conn = get_db_connection()
-            # Rerun the app to load new data
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Error restoring database from .db file: {e}")
@@ -1031,6 +1033,44 @@ def settings_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
+# Barcode Scan Page
+# -----------------------------------------------------------
+def barcode_scan_page():
+    st.title("Barcode Scanner Integration")
+    barcode_value = st.text_input("Scan Barcode (RST-XXXXXXX format)")
+    
+    if barcode_value:
+        if not barcode_value.startswith("RST-"):
+            st.error("Invalid barcode format. Must start with RST-")
+            return
+            
+        with st.spinner("Fetching ticket details..."):
+            ticket_details = get_ticket_details(barcode_value)
+            
+        if ticket_details['ticket_number'] == "Not Found":
+            st.error("Ticket not found in RepairShopr")
+            return
+            
+        st.success("Ticket details retrieved successfully!")
+        st.subheader("Ticket Information")
+        st.write(f"**Ticket Number:** {ticket_details['ticket_number']}")
+        st.write(f"**School Name:** {ticket_details['school_name']}")
+        st.write(f"**Device Model:** {ticket_details['device_model']}")
+        
+        if st.button("Add to Ticket System"):
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute('''
+                INSERT INTO tickets 
+                (date, time, ticket_number, ticket_school, status)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (current_time, current_time, 
+                  ticket_details['ticket_number'],
+                  ticket_details['school_name'],
+                  "Intake"))
+            conn.commit()
+            st.success("Ticket added to system!")
+
+# -----------------------------------------------------------
 # Main App Flow
 # -----------------------------------------------------------
 def main():
@@ -1044,7 +1084,8 @@ def main():
         "Batches": batch_view_page,
         "AI Analysis": ai_analysis_page,
         "Backup & Restore": backup_restore_page,
-        "Settings": settings_page
+        "Settings": settings_page,
+        "Barcode Scan": barcode_scan_page
     }
     active_page = st.session_state.active_page
     if active_page in pages:
