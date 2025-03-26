@@ -247,9 +247,11 @@ def dashboard_page():
             title={'text': "Delivery Rate"},
             gauge={'axis': {'range': [0, 100]},
                    'bar': {'color': "green"},
-                   'steps': [{'range': [0, 33], 'color': "lightgray"},
-                             {'range': [33, 66], 'color': "gray"},
-                             {'range': [66, 100], 'color': "darkgray"}]}
+                   'steps': [
+                       {'range': [0, 33], 'color': "lightgray"},
+                       {'range': [33, 66], 'color': "gray"},
+                       {'range': [66, 100], 'color': "darkgray"}
+                   ]}
         ))
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
@@ -578,7 +580,7 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# BULK TICKET COMPARISON PAGE (Placeholder to fix NameError)
+# BULK TICKET COMPARISON PAGE (Placeholder to avoid errors)
 # -----------------------------------------------------------
 def bulk_ticket_comparison_page():
     """
@@ -594,15 +596,11 @@ def bulk_ticket_comparison_page():
 def sql_query_converter_page():
     st.markdown("## SQL Query Converter")
     st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. "
-             "This tool will extract the ticket numbers and ensure they exist in the database, then update their status accordingly.")
-
-    raw_text = st.text_area(
-        "Enter raw ticket data", 
-        placeholder="""125633 - Eastport-South Manor / Acer R752T
+             "This tool will extract the ticket numbers and update or insert them into the database as needed.")
+    
+    raw_text = st.text_area("Enter raw ticket data", placeholder="""125633 - Eastport-South Manor / Acer R752T
 125632 - Eastport-South Manor / Acer R752T
-125631 - Eastport-South Manor / Acer R752T""",
-        height=200
-    )
+125631 - Eastport-South Manor / Acer R752T""", height=200)
     
     target_status = st.selectbox("Select target status", ["Intake", "Ready to Deliver"])
     
@@ -624,56 +622,44 @@ def sql_query_converter_page():
         db_status = "Intake" if target_status == "Intake" else "Return"
         
         if ticket_numbers:
-            # Build placeholders for dynamic queries.
             placeholders = ','.join('?' for _ in ticket_numbers)
             
-            # --- FIRST PASS: Insert tickets that do not exist ---
-            # Use INSERT OR IGNORE so that existing tickets won't be overwritten,
-            # and brand-new tickets get inserted with default sub-tickets = 1.
-            # Adjust columns/values to what you prefer (e.g., time, pay).
-            # You can also store the current date/time if desired.
+            # --- FIRST: INSERT OR IGNORE tickets that do not exist ---
             now_date = datetime.datetime.now().strftime("%Y-%m-%d")
             now_time = datetime.datetime.now().strftime("%H:%M:%S")
-
-            insert_sql = f"""
+            insert_sql = """
                 INSERT OR IGNORE INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
                 VALUES (?, ?, ?, ?, 1, 'Intake', ?)
             """
-            
-            # For each ticket_number, attempt to insert it if it doesn't already exist.
-            # We'll default new tickets to 'Intake' status and 1 sub_ticket. 
-            # Then in the next step, we’ll update them all to the desired status anyway.
             for tkt in ticket_numbers:
                 try:
                     cursor.execute(insert_sql, (now_date, now_time, "Auto-Batch", tkt, st.session_state.ticket_price))
                 except Exception as e:
                     st.error(f"Error inserting ticket {tkt}: {e}")
-            
             conn.commit()
 
-            # --- SECOND PASS: Update the status for all these tickets ---
+            # --- SECOND: UPDATE the status for all these tickets ---
             update_sql = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
             params = [db_status] + ticket_numbers
-
             try:
                 cursor.execute(update_sql, params)
                 conn.commit()
                 st.success(
-                    f"Inserted/updated {cursor.rowcount} tickets. "
-                    f"All have been set to '{target_status}' now."
+                    f"Inserted/updated {cursor.rowcount} tickets to '{target_status}'."
                 )
             except Exception as e:
                 st.error(f"Error updating tickets to '{target_status}': {e}")
         else:
-            st.warning("No ticket numbers found in the input.") 
-#
+            st.warning("No ticket numbers found in the input.")
 
 # -----------------------------------------------------------
-# Batches Page (New Page for batch tiles)
+# Batches Page (with FIX for Duplicate Keys)
 # -----------------------------------------------------------
+
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
+
     df_batches = pd.read_sql(
         """
         SELECT batch_name, 
@@ -684,11 +670,14 @@ def batch_view_page():
         GROUP BY batch_name
         """, conn
     )
+
     tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
         "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
     ])
     
-    def display_batches(df):
+    # We'll define a helper function that receives a prefix
+    # (the tab name) so each tile's button key is unique.
+    def display_batches(df, prefix):
         cols = st.columns(3)
         for idx, row in df.iterrows():
             status_str = row["statuses"]
@@ -698,40 +687,42 @@ def batch_view_page():
                 display_status = ui_status_from_db(status_str)
             with cols[idx % 3]:
                 display_batch_tile(
-                    row["batch_name"],
-                    row["total_tickets"],
-                    display_status,
-                    unique_key=idx,
+                    batch_name=row["batch_name"],
+                    total_tickets=row["total_tickets"],
+                    status=display_status,
+                    # We incorporate the tab prefix to ensure uniqueness
+                    unique_key=f"{prefix}_{idx}",
                     ticket_numbers=row["ticket_numbers"]
                 )
     
     with tab_intake:
         df_intake = df_batches[df_batches["statuses"] == "Intake"]
         if not df_intake.empty:
-            display_batches(df_intake)
+            display_batches(df_intake, prefix="intake")
         else:
             st.info("No Intake batches found.")
     
     with tab_ready:
         df_ready = df_batches[df_batches["statuses"] == "Return"]
         if not df_ready.empty:
-            display_batches(df_ready)
+            display_batches(df_ready, prefix="ready")
         else:
             st.info("No Ready to Deliver batches found.")
     
     with tab_delivered:
         df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
         if not df_delivered.empty:
-            display_batches(df_delivered)
+            display_batches(df_delivered, prefix="delivered")
         else:
             st.info("No Delivered batches found.")
     
     with tab_all:
         if not df_batches.empty:
-            display_batches(df_batches)
+            display_batches(df_batches, prefix="all")
         else:
             st.info("No batches found.")
     
+    # If editing a batch, show the status update form
     if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
         st.markdown("## Update Batch Status")
         batch_to_edit = st.session_state.edit_batch
@@ -747,6 +738,10 @@ def batch_view_page():
                 st.session_state.edit_batch = None
 
 def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
+    """
+    Renders a single tile for a batch. We ensure button keys
+    use unique_key, which includes the tab prefix + row index.
+    """
     with st.container():
         st.markdown(f"""
         <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
@@ -755,15 +750,23 @@ def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_num
           <p>Status: {status}</p>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Edit Status", key=f"edit_{batch_name}_{unique_key}"):
+
+        # Use unique_key in the button keys:
+        if st.button("Edit Status", key=f"edit_btn_{unique_key}"):
             st.session_state.edit_batch = batch_name
-        if st.button("Copy Tickets", key=f"copy_{batch_name}_{unique_key}"):
+
+        if st.button("Copy Tickets", key=f"copy_btn_{unique_key}"):
+            # We embed a small HTML/JS snippet for copying
+            random_suffix = f"copy_{unique_key}"
             html_code = f"""
-            <input id="copyInput_{unique_key}" type="text" value="{ticket_numbers}" style="opacity: 0; position: absolute; left: -9999px;">
-            <button onclick="copyText_{unique_key}()">Click to Copy Tickets</button>
+            <input id="copyInput_{random_suffix}" 
+                   type="text" 
+                   value="{ticket_numbers}" 
+                   style="opacity: 0; position: absolute; left: -9999px;">
+            <button onclick="copyText_{random_suffix}()">Click to Copy Tickets</button>
             <script>
-            function copyText_{unique_key}() {{
-                var copyText = document.getElementById("copyInput_{unique_key}");
+            function copyText_{random_suffix}() {{
+                var copyText = document.getElementById("copyInput_{random_suffix}");
                 copyText.select();
                 document.execCommand("copy");
                 alert("Copied tickets: " + copyText.value);
@@ -966,16 +969,33 @@ def ai_analysis_page():
             df_anomaly['date'] = pd.to_datetime(df_anomaly['date'])
             mean_val = df_anomaly['delivered'].mean()
             std_val = df_anomaly['delivered'].std()
-            df_anomaly['anomaly'] = df_anomaly['delivered'].apply(lambda x: 'Yes' if (x > mean_val + 2*std_val or x < mean_val - 2*std_val) else 'No')
+            df_anomaly['anomaly'] = df_anomaly['delivered'].apply(
+                lambda x: 'Yes' if (x > mean_val + 2*std_val or x < mean_val - 2*std_val) else 'No'
+            )
             st.subheader("Anomaly Detection in Delivered Tickets")
             st.write(f"Mean: {mean_val:.1f}, Standard Deviation: {std_val:.1f}")
             st.dataframe(df_anomaly)
             fig4 = go.Figure()
-            fig4.add_trace(go.Scatter(x=df_anomaly['date'], y=df_anomaly['delivered'], mode='lines+markers', name="Delivered"))
+            fig4.add_trace(go.Scatter(
+                x=df_anomaly['date'],
+                y=df_anomaly['delivered'],
+                mode='lines+markers',
+                name="Delivered"
+            ))
             anomalies = df_anomaly[df_anomaly['anomaly'] == 'Yes']
             if not anomalies.empty:
-                fig4.add_trace(go.Scatter(x=anomalies['date'], y=anomalies['delivered'], mode='markers', marker=dict(color='red', size=10), name="Anomalies"))
-            fig4.update_layout(title="Delivered Tickets with Anomalies", xaxis_title="Date", yaxis_title="Delivered Tickets")
+                fig4.add_trace(go.Scatter(
+                    x=anomalies['date'],
+                    y=anomalies['delivered'],
+                    mode='markers',
+                    marker=dict(color='red', size=10),
+                    name="Anomalies"
+                ))
+            fig4.update_layout(
+                title="Delivered Tickets with Anomalies",
+                xaxis_title="Date",
+                yaxis_title="Delivered Tickets"
+            )
             st.plotly_chart(fig4, use_container_width=True)
         else:
             st.info("No delivered ticket data available for anomaly detection.")
@@ -994,7 +1014,7 @@ def ai_analysis_page():
 # Backup & Restore Page (New)
 # -----------------------------------------------------------
 def backup_restore_page():
-    global conn  # Declare conn as global so assignments update the global variable
+    global conn  # so that reassignments update the global variable
     st.markdown("## 💾 Backup & Restore")
     st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
     
@@ -1097,7 +1117,6 @@ def main():
         "Add Tickets": add_tickets_page,
         "View Tickets": view_tickets_page,
         "Manage Tickets": manage_tickets_page,
-        # We now include our placeholder function to avoid NameError
         "Bulk Ticket Comparison": bulk_ticket_comparison_page,
         "SQL Query Converter": sql_query_converter_page,
         "Income": income_page,
