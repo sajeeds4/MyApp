@@ -665,8 +665,8 @@ def sql_query_converter_page():
             except Exception as e:
                 st.error(f"Error updating tickets to '{target_status}': {e}")
         else:
-            st.warning("No ticket numbers found in the input.")
-
+            st.warning("No ticket numbers found in the input.") 
+#
 
 # -----------------------------------------------------------
 # Batches Page (New Page for batch tiles)
