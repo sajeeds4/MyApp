@@ -1,5 +1,7 @@
 import streamlit as st
 from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -13,18 +15,12 @@ import time
 # -----------------------------------------------------------
 def setup_selenium():
     chrome_options = Options()
-    # Use your local Chrome profile for authentication.
-    chrome_options.add_argument("--user-data-dir=C:\\Users\\Gulam\\AppData\\Local\\Google\\Chrome\\User Data")
-    chrome_options.add_argument("--profile-directory=Default")
-    chrome_options.add_argument("--disable-extensions")
-    # For local usage you might not want headless mode so you can see the browser window.
-    # If you want headless mode, uncomment the following line:
-    # chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     
-    # Initialize the Chrome driver (ensure the correct ChromeDriver version is installed)
-    driver = webdriver.Chrome(options=chrome_options)
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
 # -----------------------------------------------------------
