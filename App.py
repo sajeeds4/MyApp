@@ -931,6 +931,7 @@ def ai_analysis_page():
 # Backup & Restore Page (New)
 # -----------------------------------------------------------
 def backup_restore_page():
+    global conn  # Declare conn as global so assignments update the global variable
     st.markdown("## 💾 Backup & Restore")
     st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
     
@@ -983,14 +984,14 @@ def backup_restore_page():
             with open("ticket_management.db", "wb") as f:
                 f.write(uploaded_db.getbuffer())
             st.success("Database restored successfully from uploaded .db file!")
-            # Optionally, close the current connection and reinitialize
+            # Close the current connection and reinitialize it
             conn.close()
-            # Reinitialize the connection so the changes take effect
             conn = get_db_connection()
-            # Rerun the app to load new data
+            # Rerun the app to load the new data
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Error restoring database from .db file: {e}")
+
 
 # -----------------------------------------------------------
 # Settings Page
