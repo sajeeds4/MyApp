@@ -21,6 +21,39 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------
+# Global Status Definitions (Customize as you wish)
+# -----------------------------------------------------------
+# These are the possible statuses stored in the DB.
+AVAILABLE_STATUSES = [
+    "Intake",
+    "Return",        # previously "Ready to Deliver" in DB
+    "Delivered",
+    "On Hold",       # Example of a custom status
+    "Cancelled"      # Another custom status
+]
+
+# Map DB statuses to their display labels in the UI
+STATUS_LABELS = {
+    "Intake": "Intake",
+    "Return": "Ready to Deliver",
+    "Delivered": "Delivered",
+    "On Hold": "On Hold",
+    "Cancelled": "Cancelled"
+}
+
+def display_status(status_in_db: str) -> str:
+    """Convert a DB status into a user-facing label."""
+    return STATUS_LABELS.get(status_in_db, status_in_db)
+
+def get_db_status_from_display(ui_label: str) -> str:
+    """Given the user-facing label, return the DB status key."""
+    for db_val, label in STATUS_LABELS.items():
+        if label == ui_label:
+            return db_val
+    # Fallback: if not found in dictionary
+    return ui_label
+
+# -----------------------------------------------------------
 # Session State Initialization
 # -----------------------------------------------------------
 if "ticket_price" not in st.session_state:
@@ -102,7 +135,7 @@ def setup_database():
         batch_name TEXT,
         ticket_number TEXT UNIQUE,
         num_sub_tickets INTEGER DEFAULT 1,
-        -- In the DB, "Return" means the ticket is ready to deliver.
+        -- "Return" means the ticket is "Ready to Deliver"
         status TEXT DEFAULT 'Intake',
         pay REAL DEFAULT 5.5,
         comments TEXT DEFAULT '',
@@ -115,21 +148,6 @@ def setup_database():
 
 conn = setup_database()
 cursor = conn.cursor()
-
-# -----------------------------------------------------------
-# Utility: Status Mapping (DB ↔ UI)
-# -----------------------------------------------------------
-def db_status_from_ui(status_ui: str) -> str:
-    """Convert the user-facing status to the DB value."""
-    if status_ui == "Ready to Deliver":
-        return "Return"
-    return status_ui
-
-def ui_status_from_db(status_db: str) -> str:
-    """Convert the DB status to the user-facing label."""
-    if status_db == "Return":
-        return "Ready to Deliver"
-    return status_db
 
 # -----------------------------------------------------------
 # Navigation (Add new pages to navigation)
@@ -214,16 +232,20 @@ def dashboard_page():
         df_daily['date'] = pd.to_datetime(df_daily['date'])
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
-                                   mode='lines+markers', name='Delivered',
-                                   line=dict(width=3), fill='tozeroy'))
+                                 mode='lines+markers', name='Delivered',
+                                 line=dict(width=3), fill='tozeroy'))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['ready'],
-                                   mode='lines+markers', name='Ready to Deliver',
-                                   line=dict(width=3)))
+                                 mode='lines+markers', name='Ready to Deliver',
+                                 line=dict(width=3)))
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['intake'],
-                                   mode='lines+markers', name='Intake',
-                                   line=dict(width=3, dash='dot')))
-        fig.update_layout(title='Daily Ticket Activity', xaxis_title='Date', yaxis_title='Number of Tickets',
-                          hovermode='x unified', template='plotly_white', height=500)
+                                 mode='lines+markers', name='Intake',
+                                 line=dict(width=3, dash='dot')))
+        fig.update_layout(title='Daily Ticket Activity', 
+                          xaxis_title='Date', 
+                          yaxis_title='Number of Tickets',
+                          hovermode='x unified', 
+                          template='plotly_white', 
+                          height=500)
         st.plotly_chart(fig, use_container_width=True)
         
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
@@ -259,7 +281,8 @@ def dashboard_page():
         query_status = "SELECT status, COUNT(*) as count FROM tickets GROUP BY status"
         df_status = pd.read_sql(query_status, conn)
         if not df_status.empty:
-            df_status['status_ui'] = df_status['status'].apply(ui_status_from_db)
+            # Convert each DB status to display label
+            df_status['status_ui'] = df_status['status'].apply(display_status)
             fig_pie = px.pie(df_status, values='count', names='status_ui',
                              title="Ticket Status Distribution")
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
@@ -272,7 +295,7 @@ def dashboard_page():
     st.subheader("⏱️ Recent Activity")
     df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
     if not df_recent.empty:
-        df_recent['status'] = df_recent['status'].apply(ui_status_from_db)
+        df_recent['status'] = df_recent['status'].apply(display_status)
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent activity to display")
@@ -364,7 +387,7 @@ def add_tickets_page():
     st.subheader("Recent Additions")
     df_recent = pd.read_sql("SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", conn)
     if not df_recent.empty:
-        df_recent['status'] = df_recent['status'].apply(ui_status_from_db)
+        df_recent['status'] = df_recent['status'].apply(display_status)
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent tickets added.")
@@ -374,49 +397,42 @@ def add_tickets_page():
 # -----------------------------------------------------------
 def view_tickets_page():
     st.markdown("## 👁️ View Tickets by Status")
-    tab1, tab2, tab3 = st.tabs(["📥 Intake", "🔄 Ready to Deliver", "🚚 Delivered"])
+    # We'll show only known statuses in separate tabs, plus a "Mixed/Other" if needed
+    # But let's focus on "Intake", "Return", "Delivered"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📥 Intake",
+        "🔄 Ready to Deliver",
+        "🚚 Delivered",
+        "On Hold",
+        "Cancelled"
+    ])
     
-    with tab1:
-        st.subheader("Intake Tickets")
-        df_intake = pd.read_sql("SELECT * FROM tickets WHERE status='Intake' ORDER BY date DESC, time DESC", conn)
-        if not df_intake.empty:
-            df_intake['status'] = df_intake['status'].apply(ui_status_from_db)
-            st.dataframe(df_intake, use_container_width=True)
-            total_intake = df_intake['num_sub_tickets'].sum()
-            total_value = total_intake * st.session_state.ticket_price
-            col1, col2 = st.columns(2)
-            col1.metric("Total Sub-Tickets", f"{int(total_intake)}")
-            col2.metric("Total Value", f"${total_value:,.2f}")
-        else:
-            st.info("No intake tickets found")
-    
-    with tab2:
-        st.subheader("Ready to Deliver Tickets")
-        df_ready = pd.read_sql("SELECT * FROM tickets WHERE status='Return' ORDER BY date DESC, time DESC", conn)
-        if not df_ready.empty:
-            df_ready['status'] = df_ready['status'].apply(ui_status_from_db)
-            st.dataframe(df_ready, use_container_width=True)
-            total_ready = df_ready['num_sub_tickets'].sum()
-            potential_value = total_ready * st.session_state.ticket_price
-            col1, col2 = st.columns(2)
-            col1.metric("Total Ready for Delivery", f"{int(total_ready)}")
-            col2.metric("Potential Value", f"${potential_value:,.2f}")
-        else:
-            st.info("No 'Ready to Deliver' tickets found")
-    
-    with tab3:
-        st.subheader("Delivered Tickets")
-        df_delivered = pd.read_sql("SELECT * FROM tickets WHERE status='Delivered' ORDER BY date DESC, time DESC", conn)
-        if not df_delivered.empty:
-            df_delivered['status'] = df_delivered['status'].apply(ui_status_from_db)
-            st.dataframe(df_delivered, use_container_width=True)
-            total_delivered = df_delivered['num_sub_tickets'].sum()
-            earned_value = total_delivered * st.session_state.ticket_price
-            col1, col2 = st.columns(2)
-            col1.metric("Total Delivered", f"{int(total_delivered)}")
-            col2.metric("Earned Value", f"${earned_value:,.2f}")
-        else:
-            st.info("No delivered tickets found")
+    # For each known status, query and show
+    def show_status_data(status_key, container):
+        with container:
+            st.subheader(f"Tickets with status '{display_status(status_key)}'")
+            df_data = pd.read_sql("SELECT * FROM tickets WHERE status=? ORDER BY date DESC, time DESC", conn, params=(status_key,))
+            if not df_data.empty:
+                df_data['status'] = df_data['status'].apply(display_status)
+                st.dataframe(df_data, use_container_width=True)
+                total_count = df_data['num_sub_tickets'].sum()
+                total_value = total_count * st.session_state.ticket_price
+                colA, colB = st.columns(2)
+                colA.metric("Total Sub-Tickets", f"{int(total_count)}")
+                colB.metric("Total Value", f"${total_value:,.2f}")
+            else:
+                st.info(f"No tickets found with status '{display_status(status_key)}'")
+
+    # Intake
+    show_status_data("Intake", tab1)
+    # Ready (Return)
+    show_status_data("Return", tab2)
+    # Delivered
+    show_status_data("Delivered", tab3)
+    # On Hold
+    show_status_data("On Hold", tab4)
+    # Cancelled
+    show_status_data("Cancelled", tab5)
 
 # -----------------------------------------------------------
 # Manage Tickets Page
@@ -446,16 +462,23 @@ def manage_tickets_page():
         if ticket_number:
             ticket_data = pd.read_sql("SELECT * FROM tickets WHERE ticket_number = ?", conn, params=(ticket_number.strip(),))
             if not ticket_data.empty:
-                current_status_ui = ui_status_from_db(ticket_data.iloc[0]['status'])
+                current_status_db = ticket_data.iloc[0]['status']
+                current_status_ui = display_status(current_status_db)
+                
+                # Build a status selectbox from the display labels
+                status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+                default_idx = status_display_list.index(current_status_ui) if current_status_ui in status_display_list else 0
+                
                 with st.form("edit_ticket_form"):
-                    new_status_ui = st.selectbox("Status", ["Intake", "Ready to Deliver", "Delivered"],
-                                                 index=["Intake", "Ready to Deliver", "Delivered"].index(current_status_ui))
+                    new_status_label = st.selectbox("Status", status_display_list, index=default_idx)
+                    new_status_db = get_db_status_from_display(new_status_label)
                     new_subtickets = st.number_input("Sub-Tickets", min_value=1, value=int(ticket_data.iloc[0]['num_sub_tickets']))
                     new_price = st.number_input("Ticket Price", min_value=0.0, value=float(ticket_data.iloc[0]['pay']), step=0.5)
                     if st.form_submit_button("Update Ticket"):
-                        db_status = db_status_from_ui(new_status_ui)
-                        cursor.execute("UPDATE tickets SET status = ?, num_sub_tickets = ?, pay = ? WHERE ticket_number = ?",
-                                       (db_status, new_subtickets, new_price, ticket_number.strip()))
+                        cursor.execute(
+                            "UPDATE tickets SET status = ?, num_sub_tickets = ?, pay = ? WHERE ticket_number = ?",
+                            (new_status_db, new_subtickets, new_price, ticket_number.strip())
+                        )
                         conn.commit()
                         st.success("Ticket updated successfully!")
                         if animations["success"]:
@@ -483,13 +506,14 @@ def manage_tickets_page():
             if found_tickets:
                 st.success(f"{len(found_tickets)} valid tickets found")
                 if bulk_action == "Update Status":
-                    new_status_ui = st.selectbox("New Status", ["Intake", "Ready to Deliver", "Delivered"])
+                    status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+                    new_status_label = st.selectbox("New Status", status_display_list)
+                    new_status_db = get_db_status_from_display(new_status_label)
                     if st.button("Update Status for All Found Tickets"):
-                        db_status = db_status_from_ui(new_status_ui)
                         for t in found_tickets:
-                            cursor.execute("UPDATE tickets SET status = ? WHERE ticket_number = ?", (db_status, t))
+                            cursor.execute("UPDATE tickets SET status = ? WHERE ticket_number = ?", (new_status_db, t))
                         conn.commit()
-                        st.success(f"Updated {len(found_tickets)} tickets to {new_status_ui} status")
+                        st.success(f"Updated {len(found_tickets)} tickets to {new_status_label} status")
                 elif bulk_action == "Change Price":
                     new_price = st.number_input("New Price", min_value=0.0, value=st.session_state.ticket_price)
                     if st.button("Update Price for All Found Tickets"):
@@ -545,16 +569,21 @@ def manage_tickets_page():
             selected_batch = st.selectbox("Select a Batch to Manage", batch_names)
             if selected_batch:
                 df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(selected_batch,))
-                df_batch['status'] = df_batch['status'].apply(ui_status_from_db)
+                df_batch['status'] = df_batch['status'].apply(display_status)
                 st.dataframe(df_batch, use_container_width=True)
-                new_status_ui = st.selectbox("New Status for All Tickets in This Batch", ["Intake", "Ready to Deliver", "Delivered"])
+
+                # Bulk update of the entire batch to a single status
+                status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+                new_status_label = st.selectbox("New Status for All Tickets in This Batch", status_display_list)
+                new_status_db = get_db_status_from_display(new_status_label)
                 if st.button("Update All Tickets in Batch"):
-                    db_status = db_status_from_ui(new_status_ui)
-                    cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, selected_batch))
+                    cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (new_status_db, selected_batch))
                     conn.commit()
-                    st.success(f"All tickets in batch '{selected_batch}' updated to '{new_status_ui}'!")
+                    st.success(f"All tickets in batch '{selected_batch}' updated to '{new_status_label}'!")
+                    
+                    # Show updated data
                     df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(selected_batch,))
-                    df_batch['status'] = df_batch['status'].apply(ui_status_from_db)
+                    df_batch['status'] = df_batch['status'].apply(display_status)
                     st.dataframe(df_batch, use_container_width=True)
         else:
             st.info("No batches found in the database.")
@@ -580,7 +609,7 @@ def manage_tickets_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# BULK TICKET COMPARISON PAGE (Placeholder to avoid errors)
+# BULK TICKET COMPARISON PAGE
 # -----------------------------------------------------------
 def bulk_ticket_comparison_page():
     st.markdown("## 🔍 Bulk Ticket Comparison")
@@ -592,16 +621,13 @@ def bulk_ticket_comparison_page():
         - **Matches**: Found in both.
     """)
 
-    # 1) Text area to accept user-pasted ticket numbers:
     pasted_tickets_text = st.text_area(
         "Paste ticket numbers here (one per line)",
         height=200,
         placeholder="e.g.\n12345\n12346\nABC999"
     )
 
-    # 2) Button to trigger the comparison:
     if st.button("Compare"):
-        # --- Parse the pasted list into a set of ticket numbers ---
         user_tickets = set()
         lines = pasted_tickets_text.strip().splitlines()
         for line in lines:
@@ -613,58 +639,47 @@ def bulk_ticket_comparison_page():
             st.warning("No valid ticket numbers found in the text area.")
             return
 
-        # --- Load all ticket_number values from DB into a set ---
         df_db_tickets = pd.read_sql("SELECT ticket_number FROM tickets", conn)
         db_tickets = set(df_db_tickets["ticket_number"].tolist())
 
-        # --- Compute set differences & intersection ---
-        missing_in_db = user_tickets - db_tickets   # in user list, not in DB
-        extra_in_db = db_tickets - user_tickets     # in DB, not in user list
-        matches = user_tickets & db_tickets         # in both
+        missing_in_db = user_tickets - db_tickets
+        extra_in_db = db_tickets - user_tickets
+        matches = user_tickets & db_tickets
 
-        # --- Display Summary ---
         colA, colB, colC = st.columns(3)
-        with colA:
-            st.metric("Missing in DB", len(missing_in_db))
-        with colB:
-            st.metric("Extra in DB", len(extra_in_db))
-        with colC:
-            st.metric("Matches", len(matches))
+        colA.metric("Missing in DB", len(missing_in_db))
+        colB.metric("Extra in DB", len(extra_in_db))
+        colC.metric("Matches", len(matches))
 
         st.write("---")
         st.subheader("Details")
 
-        # --- 2.1) Missing in DB ---
         if missing_in_db:
             st.write("### Tickets Missing in DB")
             st.write(", ".join(sorted(missing_in_db)))
         else:
             st.info("No missing tickets in DB.")
 
-        # --- 2.2) Extra in DB (now also with details) ---
         if extra_in_db:
             st.write("### Tickets in DB But Not in Your List")
             st.write(", ".join(sorted(extra_in_db)))
-            # Fetch their details from DB:
             placeholders = ",".join(["?"] * len(extra_in_db))
             query_extra = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
             df_extra = pd.read_sql(query_extra, conn, params=list(extra_in_db))
-            df_extra["status"] = df_extra["status"].apply(ui_status_from_db)
+            df_extra["status"] = df_extra["status"].apply(display_status)
             st.dataframe(df_extra, use_container_width=True)
         else:
             st.info("No extra tickets found in DB.")
 
-        # --- 2.3) Matches (Detailed Info) ---
         if matches:
             st.write("### Matched Tickets (In Both Lists)")
             placeholders = ",".join(["?"] * len(matches))
             query = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
             df_matched = pd.read_sql(query, conn, params=list(matches))
-            df_matched["status"] = df_matched["status"].apply(ui_status_from_db)
+            df_matched["status"] = df_matched["status"].apply(display_status)
             st.dataframe(df_matched, use_container_width=True)
         else:
             st.info("No tickets were found in both lists.")
-
 
 # -----------------------------------------------------------
 # SQL Query Converter Page
@@ -678,29 +693,29 @@ def sql_query_converter_page():
 125632 - Eastport-South Manor / Acer R752T
 125631 - Eastport-South Manor / Acer R752T""", height=200)
     
-    target_status = st.selectbox("Select target status", ["Intake", "Ready to Deliver"])
+    # Let user pick any known status from our global list
+    display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+    target_status_label = st.selectbox("Select target status", display_list)
+    target_status_db = get_db_status_from_display(target_status_label)
     
     if st.button("Generate and Execute SQL Query"):
-        # 1) Parse the input lines to extract ticket numbers.
         lines = raw_text.strip().splitlines()
         ticket_numbers = []
         for line in lines:
+            line = line.strip()
             if " - " in line:
-                ticket_number = line.split(" - ")[0].strip()
-                ticket_numbers.append(ticket_number)
+                tnum = line.split(" - ")[0].strip()
+                ticket_numbers.append(tnum)
             else:
-                # Fallback: take the first word of the line.
+                # Fallback: take the first word of the line, if any
                 parts = line.split()
                 if parts:
                     ticket_numbers.append(parts[0].strip())
 
-        # 2) Determine DB status (mapping "Ready to Deliver" → "Return").
-        db_status = "Intake" if target_status == "Intake" else "Return"
-        
         if ticket_numbers:
-            placeholders = ','.join('?' for _ in ticket_numbers)
-            
-            # --- FIRST: INSERT OR IGNORE tickets that do not exist ---
+            # We'll do two steps:
+            # 1) INSERT OR IGNORE any that don't exist
+            # 2) UPDATE status
             now_date = datetime.datetime.now().strftime("%Y-%m-%d")
             now_time = datetime.datetime.now().strftime("%H:%M:%S")
             insert_sql = """
@@ -714,142 +729,140 @@ def sql_query_converter_page():
                     st.error(f"Error inserting ticket {tkt}: {e}")
             conn.commit()
 
-            # --- SECOND: UPDATE the status for all these tickets ---
+            # 2) Update to the chosen status
+            placeholders = ",".join(["?"] * len(ticket_numbers))
             update_sql = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
-            params = [db_status] + ticket_numbers
+            params = [target_status_db] + ticket_numbers
             try:
                 cursor.execute(update_sql, params)
                 conn.commit()
                 st.success(
-                    f"Inserted/updated {cursor.rowcount} tickets to '{target_status}'."
+                    f"Inserted/updated {cursor.rowcount} tickets to '{target_status_label}'."
                 )
             except Exception as e:
-                st.error(f"Error updating tickets to '{target_status}': {e}")
+                st.error(f"Error updating tickets to '{target_status_label}': {e}")
         else:
             st.warning("No ticket numbers found in the input.")
 
 # -----------------------------------------------------------
-# Batches Page (with FIX for Duplicate Keys)
+# Batches Page (revised to handle single-status vs mixed)
 # -----------------------------------------------------------
-
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
-    st.write("View batches as tiles by status. Click on 'Edit Status' to update its status or 'Copy Tickets' to copy all ticket numbers for that batch.")
-
+    st.write("""Each batch is shown under the tab that matches its **single** status. 
+    If a batch has multiple ticket statuses, it is shown as "Mixed" in the Mixed tab.""")
+    
     df_batches = pd.read_sql(
         """
         SELECT batch_name, 
-               SUM(num_sub_tickets) as total_tickets, 
                GROUP_CONCAT(DISTINCT status) as statuses,
+               SUM(num_sub_tickets) as total_tickets,
                GROUP_CONCAT(ticket_number) as ticket_numbers
-        FROM tickets 
+        FROM tickets
         GROUP BY batch_name
         """, conn
     )
+    if df_batches.empty:
+        st.info("No batches found.")
+        return
+    
+    # Compute whether each batch has exactly 1 status or multiple
+    def get_batch_primary_status(row):
+        stat_list = row["statuses"].split(",")
+        stat_list = list(set(stat_list))  # unique
+        if len(stat_list) == 1:
+            return stat_list[0]  # the single status
+        return "Mixed"
 
-    tab_intake, tab_ready, tab_delivered, tab_all = st.tabs([
-        "Intake Batches", "Ready to Deliver Batches", "Delivered Batches", "All Batches"
-    ])
-    
-    # We'll define a helper function that receives a prefix
-    # (the tab name) so each tile's button key is unique.
-    def display_batches(df, prefix):
-        cols = st.columns(3)
-        for idx, row in df.iterrows():
-            status_str = row["statuses"]
-            if "," in status_str:
-                display_status = "Mixed"
-            else:
-                display_status = ui_status_from_db(status_str)
-            with cols[idx % 3]:
-                display_batch_tile(
-                    batch_name=row["batch_name"],
-                    total_tickets=row["total_tickets"],
-                    status=display_status,
-                    # We incorporate the tab prefix to ensure uniqueness
-                    unique_key=f"{prefix}_{idx}",
-                    ticket_numbers=row["ticket_numbers"]
-                )
-    
-    with tab_intake:
-        df_intake = df_batches[df_batches["statuses"] == "Intake"]
-        if not df_intake.empty:
-            display_batches(df_intake, prefix="intake")
-        else:
-            st.info("No Intake batches found.")
-    
-    with tab_ready:
-        df_ready = df_batches[df_batches["statuses"] == "Return"]
-        if not df_ready.empty:
-            display_batches(df_ready, prefix="ready")
-        else:
-            st.info("No Ready to Deliver batches found.")
-    
-    with tab_delivered:
-        df_delivered = df_batches[df_batches["statuses"] == "Delivered"]
-        if not df_delivered.empty:
-            display_batches(df_delivered, prefix="delivered")
-        else:
-            st.info("No Delivered batches found.")
-    
-    with tab_all:
-        if not df_batches.empty:
-            display_batches(df_batches, prefix="all")
-        else:
-            st.info("No batches found.")
-    
-    # If editing a batch, show the status update form
-    if "edit_batch" in st.session_state and st.session_state.get("edit_batch"):
-        st.markdown("## Update Batch Status")
-        batch_to_edit = st.session_state.edit_batch
-        st.write(f"Updating status for batch: **{batch_to_edit}**")
-        with st.form("update_batch_status_form"):
-            new_status_ui = st.selectbox("Select new status", ["Intake", "Ready to Deliver", "Delivered"])
-            submitted = st.form_submit_button("Update Batch Status")
-            if submitted:
-                db_status = db_status_from_ui(new_status_ui)
-                cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (db_status, batch_to_edit))
-                conn.commit()
-                st.success(f"Batch '{batch_to_edit}' updated to '{new_status_ui}'!")
-                st.session_state.edit_batch = None
+    df_batches["batch_status"] = df_batches.apply(get_batch_primary_status, axis=1)
 
-def display_batch_tile(batch_name, total_tickets, status, unique_key, ticket_numbers):
-    """
-    Renders a single tile for a batch. We ensure button keys
-    use unique_key, which includes the tab prefix + row index.
-    """
-    with st.container():
-        st.markdown(f"""
-        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin: 5px; text-align: center;">
-          <h4>{batch_name}</h4>
-          <p>Total Tickets: {total_tickets}</p>
-          <p>Status: {status}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # We create a tab for each known status + a "Mixed" tab
+    known_statuses = AVAILABLE_STATUSES + ["Mixed"]
+    tab_objects = st.tabs([display_status(s) for s in known_statuses])
 
-        # Use unique_key in the button keys:
-        if st.button("Edit Status", key=f"edit_btn_{unique_key}"):
-            st.session_state.edit_batch = batch_name
+    # Helper function to display batch tiles in a given container
+    def display_batches_in_tab(df, container, tab_status):
+        with container:
+            # Filter by that status
+            df_filtered = df[df["batch_status"] == tab_status]
+            if df_filtered.empty:
+                st.info(f"No batches with status '{display_status(tab_status)}'")
+                return
 
-        if st.button("Copy Tickets", key=f"copy_btn_{unique_key}"):
-            # We embed a small HTML/JS snippet for copying
-            random_suffix = f"copy_{unique_key}"
-            html_code = f"""
-            <input id="copyInput_{random_suffix}" 
-                   type="text" 
-                   value="{ticket_numbers}" 
-                   style="opacity: 0; position: absolute; left: -9999px;">
-            <button onclick="copyText_{random_suffix}()">Click to Copy Tickets</button>
-            <script>
-            function copyText_{random_suffix}() {{
-                var copyText = document.getElementById("copyInput_{random_suffix}");
-                copyText.select();
-                document.execCommand("copy");
-                alert("Copied tickets: " + copyText.value);
-            }}
-            </script>
-            """
-            components.html(html_code, height=50)
+            # We'll show them in columns of 3
+            cols = st.columns(3)
+            for idx, row in df_filtered.iterrows():
+                bname = row["batch_name"]
+                statuses_raw = row["statuses"]
+                total_tickets = row["total_tickets"]
+                tnumbers = row["ticket_numbers"]
+
+                # If there's exactly 1 status, display the label; else "Mixed"
+                if statuses_raw and "," in statuses_raw:
+                    # multiple distinct statuses
+                    status_label = "Mixed"
+                else:
+                    status_label = display_status(statuses_raw)
+
+                with cols[idx % 3]:
+                    st.markdown(f"""
+                    <div style="border: 1px solid #ccc; border-radius: 8px; padding: 10px; margin: 5px; text-align: center;">
+                        <h4>{bname}</h4>
+                        <p>Total Tickets: {total_tickets}</p>
+                        <p>Status: {status_label}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if st.button(f"Edit Status - {bname}", key=f"edit_btn_{bname}_{tab_status}"):
+                        st.session_state["edit_batch"] = bname
+                        st.session_state["edit_batch_status"] = status_label
+
+                    if st.button(f"Copy Tickets - {bname}", key=f"copy_btn_{bname}_{tab_status}"):
+                        # Simple approach: show them in an expander, or copy via HTML
+                        # We'll do the same HTML/JS approach for direct copying:
+                        random_suffix = f"copy_{bname}_{tab_status}"
+                        html_code = f"""
+                        <input id="copyInput_{random_suffix}" 
+                            type="text" 
+                            value="{tnumbers}" 
+                            style="opacity: 0; position: absolute; left: -9999px;">
+                        <button onclick="copyText_{random_suffix}()">Click to Copy Tickets</button>
+                        <script>
+                        function copyText_{random_suffix}() {{
+                            var copyText = document.getElementById("copyInput_{random_suffix}");
+                            copyText.select();
+                            document.execCommand("copy");
+                            alert("Copied tickets: " + copyText.value);
+                        }}
+                        </script>
+                        """
+                        components.html(html_code, height=50)
+    
+    # Create sub-tabs for each known status
+    for status_key, tab_obj in zip(known_statuses, tab_objects):
+        display_batches_in_tab(df_batches, tab_obj, status_key)
+
+    # If user clicked "Edit Status" for a batch, show an update form at bottom
+    if "edit_batch" in st.session_state and st.session_state["edit_batch"]:
+        bname = st.session_state["edit_batch"]
+        st.markdown("---")
+        st.markdown(f"## Update Batch Status for: **{bname}**")
+        df_b = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(bname,))
+        st.dataframe(df_b, use_container_width=True)
+
+        # Let user pick new status
+        status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+        new_status_label = st.selectbox("New Status", status_display_list)
+        new_status_db = get_db_status_from_display(new_status_label)
+
+        if st.button("Confirm Status Update"):
+            cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (new_status_db, bname))
+            conn.commit()
+            st.success(f"All tickets in batch '{bname}' updated to '{new_status_label}'.")
+            # Clear from session
+            st.session_state["edit_batch"] = None
+            st.session_state["edit_batch_status"] = None
+            st.experimental_rerun()
 
 # -----------------------------------------------------------
 # Income Page
@@ -904,6 +917,7 @@ def income_page():
         st.metric("Pending Income", f"${pending_income:,.2f}")
         st.metric("Total Potential Income", f"${total_received + pending_income:,.2f}")
         
+        # Simple linear forecast
         if len(df_income) > 1:
             df_income["date_num"] = df_income["date"].map(datetime.datetime.toordinal)
             x = df_income["date_num"].values
@@ -932,11 +946,12 @@ def income_page():
     st.markdown("---")
 
 # -----------------------------------------------------------
-# AI Analysis Page (New)
+# AI Analysis Page
 # -----------------------------------------------------------
 def ai_analysis_page():
     st.markdown("## 🤖 AI Analysis")
-    st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
+    st.write("This section provides AI-driven insights into your ticket management performance based on historical data. "
+             "It can highlight trends, perform simple forecasts, and detect anomalies in your delivered ticket counts.")
     
     total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
     total_tickets = total_tickets_df.iloc[0]['total'] or 0
@@ -995,18 +1010,18 @@ def ai_analysis_page():
         if not df_status.empty:
             df_status['date'] = pd.to_datetime(df_status['date'])
             df_status['weekday'] = df_status['date'].dt.day_name()
-            df_status['status_ui'] = df_status['status'].apply(ui_status_from_db)
+            df_status['status_ui'] = df_status['status'].apply(display_status)
             pivot = df_status.pivot_table(index='weekday', columns='status_ui', values='count', aggfunc='mean', fill_value=0)
             weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             pivot = pivot.reindex(weekday_order)
             st.subheader("Average Daily Ticket Counts by Weekday")
             st.dataframe(pivot)
             fig2 = go.Figure()
-            for status in pivot.columns:
+            for status_col in pivot.columns:
                 fig2.add_trace(go.Bar(
                     x=pivot.index,
-                    y=pivot[status],
-                    name=status
+                    y=pivot[status_col],
+                    name=status_col
                 ))
             fig2.update_layout(
                 title="Average Ticket Counts by Weekday",
@@ -1087,10 +1102,10 @@ def ai_analysis_page():
     st.write("Keep monitoring your performance regularly to identify trends and optimize your operations.")
 
 # -----------------------------------------------------------
-# Backup & Restore Page (New)
+# Backup & Restore Page
 # -----------------------------------------------------------
 def backup_restore_page():
-    global conn  # so that reassignments update the global variable
+    global conn
     st.markdown("## 💾 Backup & Restore")
     st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
     
@@ -1179,6 +1194,8 @@ def settings_page():
         if dark_mode != st.session_state.dark_mode:
             st.session_state.dark_mode = dark_mode
             load_css()
+        # The color picker is not actively used to style the entire app,
+        # but you could incorporate it if you want more advanced theming
         st.color_picker("Primary Color", value="#4CAF50", key="primary_color")
     
     st.markdown("---")
