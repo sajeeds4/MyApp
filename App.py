@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
 import datetime
 import requests
@@ -9,6 +8,11 @@ import plotly.graph_objects as go
 from io import BytesIO
 import numpy as np
 import streamlit.components.v1 as components
+
+# MongoDB imports
+import pymongo
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
 # -----------------------------------------------------------
 # Configuration
@@ -23,16 +27,14 @@ st.set_page_config(
 # -----------------------------------------------------------
 # Global Status Definitions (Customize as you wish)
 # -----------------------------------------------------------
-# These are the possible statuses stored in the DB.
 AVAILABLE_STATUSES = [
     "Intake",
-    "Return",        # previously "Ready to Deliver" in DB
+    "Return",     # previously "Ready to Deliver"
     "Delivered",
-    "On Hold",       # Example of a custom status
-    "Cancelled"      # Another custom status
+    "On Hold",
+    "Cancelled"
 ]
 
-# Map DB statuses to their display labels in the UI
 STATUS_LABELS = {
     "Intake": "Intake",
     "Return": "Ready to Deliver",
@@ -42,15 +44,12 @@ STATUS_LABELS = {
 }
 
 def display_status(status_in_db: str) -> str:
-    """Convert a DB status into a user-facing label."""
     return STATUS_LABELS.get(status_in_db, status_in_db)
 
 def get_db_status_from_display(ui_label: str) -> str:
-    """Given the user-facing label, return the DB status key."""
     for db_val, label in STATUS_LABELS.items():
         if label == ui_label:
             return db_val
-    # Fallback: if not found in dictionary
     return ui_label
 
 # -----------------------------------------------------------
@@ -68,7 +67,7 @@ if "active_page" not in st.session_state:
     st.session_state.active_page = "Dashboard"  # default page
 
 # -----------------------------------------------------------
-# Styling (Basic CSS to hide branding and set background)
+# Styling (Basic CSS)
 # -----------------------------------------------------------
 def load_css():
     if st.session_state.dark_mode:
@@ -118,39 +117,28 @@ animations = {
 }
 
 # -----------------------------------------------------------
-# Database Setup
+# MongoDB Setup
 # -----------------------------------------------------------
-def get_db_connection():
-    conn = sqlite3.connect("ticket_management.db", check_same_thread=False)
-    return conn
+def get_mongo_collection():
+    # Replace <username> and <password> with your actual credentials
+    uri = "mongodb+srv://<username>:<password>@cluster0.ygnrrkc.mongodb.net/?retryWrites=true&w=majority"
+    client = MongoClient(uri, server_api=ServerApi('1'))
+    db = client["ticket_management"]  # Use any DB name you want
+    tickets_coll = db["tickets"]
 
-def setup_database():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS tickets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        time TEXT,
-        batch_name TEXT,
-        ticket_number TEXT UNIQUE,
-        num_sub_tickets INTEGER DEFAULT 1,
-        -- "Return" means the ticket is "Ready to Deliver"
-        status TEXT DEFAULT 'Intake',
-        pay REAL DEFAULT 5.5,
-        comments TEXT DEFAULT '',
-        ticket_day TEXT,
-        ticket_school TEXT
+    # Create a unique index on ticket_number so duplicates are rejected
+    # This runs every time but only really creates once.
+    tickets_coll.create_index(
+        [("ticket_number", pymongo.ASCENDING)], 
+        unique=True
     )
-    ''')
-    conn.commit()
-    return conn
 
-conn = setup_database()
-cursor = conn.cursor()
+    return tickets_coll
+
+tickets_collection = get_mongo_collection()
 
 # -----------------------------------------------------------
-# Navigation (Add new pages to navigation)
+# Navigation
 # -----------------------------------------------------------
 def render_navbar():
     pages = {
@@ -177,6 +165,30 @@ def render_navbar():
             st.session_state.active_page = page
 
 # -----------------------------------------------------------
+# Helper: Summation by Status
+# -----------------------------------------------------------
+def get_total_subtickets_by_status(status_name):
+    """
+    Equivalent to SELECT SUM(num_sub_tickets) WHERE status = ?
+    """
+    pipeline = [
+        {"$match": {"status": status_name}},
+        {"$group": {"_id": None, "total": {"$sum": "$num_sub_tickets"}}}
+    ]
+    result = list(tickets_collection.aggregate(pipeline))
+    return result[0]["total"] if result else 0
+
+def get_total_subtickets_all():
+    """
+    Equivalent to SELECT SUM(num_sub_tickets) FROM tickets
+    """
+    pipeline = [
+        {"$group": {"_id": None, "total": {"$sum": "$num_sub_tickets"}}}
+    ]
+    result = list(tickets_collection.aggregate(pipeline))
+    return result[0]["total"] if result else 0
+
+# -----------------------------------------------------------
 # Dashboard Page
 # -----------------------------------------------------------
 def dashboard_page():
@@ -188,21 +200,15 @@ def dashboard_page():
     with col_title:
         st.markdown("## 📊 Real-Time Ticket Analytics")
         st.write("View and analyze your ticket performance and earnings at a glance.")
-    
-    # Totals are computed by summing num_sub_tickets
-    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Intake'")
-    total_intake = cursor.fetchone()[0] or 0
-    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Return'")
-    total_ready = cursor.fetchone()[0] or 0
-    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets WHERE status='Delivered'")
-    total_delivered = cursor.fetchone()[0] or 0
-    cursor.execute("SELECT SUM(num_sub_tickets) FROM tickets")
-    total_overall = cursor.fetchone()[0] or 0
+
+    total_intake = get_total_subtickets_by_status("Intake")
+    total_ready = get_total_subtickets_by_status("Return")  # "Ready to Deliver"
+    total_delivered = get_total_subtickets_by_status("Delivered")
+    total_overall = get_total_subtickets_all()
 
     estimated_earnings = total_intake * st.session_state.ticket_price
     actual_earnings = total_delivered * st.session_state.ticket_price
 
-    # Display key metrics (Overall, Intake, Ready, Delivered)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Overall Total Tickets", f"{int(total_overall)}")
     col2.metric("Total Intake", f"{int(total_intake)}", f"${estimated_earnings:.2f}")
@@ -216,20 +222,40 @@ def dashboard_page():
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
-    
-    query = """
-    SELECT date, 
-           SUM(CASE WHEN status='Delivered' THEN num_sub_tickets ELSE 0 END) as delivered,
-           SUM(CASE WHEN status='Return' THEN num_sub_tickets ELSE 0 END) as ready,
-           SUM(CASE WHEN status='Intake' THEN num_sub_tickets ELSE 0 END) as intake
-    FROM tickets
-    WHERE date BETWEEN ? AND ?
-    GROUP BY date
-    ORDER BY date
-    """
-    df_daily = pd.read_sql(query, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
+
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
+
+    # Aggregation to mimic: date, sum delivered, sum ready, sum intake
+    pipeline = [
+        {"$match": {"date": {"$gte": start_str, "$lte": end_str}}},
+        {"$group": {
+            "_id": "$date",
+            "delivered": {
+                "$sum": {
+                    "$cond": [{"$eq": ["$status", "Delivered"]}, "$num_sub_tickets", 0]
+                }
+            },
+            "ready": {
+                "$sum": {
+                    "$cond": [{"$eq": ["$status", "Return"]}, "$num_sub_tickets", 0]
+                }
+            },
+            "intake": {
+                "$sum": {
+                    "$cond": [{"$eq": ["$status", "Intake"]}, "$num_sub_tickets", 0]
+                }
+            }
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    result = list(tickets_collection.aggregate(pipeline))
+    df_daily = pd.DataFrame(result)
     if not df_daily.empty:
-        df_daily['date'] = pd.to_datetime(df_daily['date'])
+        df_daily.rename(columns={"_id": "date"}, inplace=True)
+        # Convert date from string to datetime for better plotting
+        df_daily["date"] = pd.to_datetime(df_daily["date"], format="%Y-%m-%d", errors="coerce")
+
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['delivered'],
                                  mode='lines+markers', name='Delivered',
@@ -240,14 +266,15 @@ def dashboard_page():
         fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['intake'],
                                  mode='lines+markers', name='Intake',
                                  line=dict(width=3, dash='dot')))
-        fig.update_layout(title='Daily Ticket Activity', 
-                          xaxis_title='Date', 
+        fig.update_layout(title='Daily Ticket Activity',
+                          xaxis_title='Date',
                           yaxis_title='Number of Tickets',
-                          hovermode='x unified', 
-                          template='plotly_white', 
+                          hovermode='x unified',
+                          template='plotly_white',
                           height=500)
         st.plotly_chart(fig, use_container_width=True)
-        
+
+        # Another chart for daily delivery earnings
         df_daily['delivered_value'] = df_daily['delivered'] * st.session_state.ticket_price
         fig2 = px.bar(df_daily, x='date', y='delivered_value',
                       title="Daily Delivery Earnings",
@@ -256,13 +283,13 @@ def dashboard_page():
         st.plotly_chart(fig2, use_container_width=True)
     else:
         st.info("No data available for selected date range")
-    
-    # Performance Statistics: Gauge and Pie Chart
+
+    # Performance Statistics
     st.subheader("📈 Performance Statistics")
     col_stat1, col_stat2 = st.columns(2)
     with col_stat1:
-        total_intake = max(total_intake, 0)
-        conversion_rate = (total_delivered / total_intake * 100) if total_intake > 0 else 0
+        total_intake_safe = max(total_intake, 0)
+        conversion_rate = (total_delivered / total_intake_safe * 100) if total_intake_safe > 0 else 0
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number",
             value=conversion_rate,
@@ -277,11 +304,17 @@ def dashboard_page():
         ))
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
+
     with col_stat2:
-        query_status = "SELECT status, COUNT(*) as count FROM tickets GROUP BY status"
-        df_status = pd.read_sql(query_status, conn)
+        # Query status distribution: SELECT status, COUNT(*) from tickets GROUP BY status
+        pipeline_status = [
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+        ]
+        result_status = list(tickets_collection.aggregate(pipeline_status))
+        df_status = pd.DataFrame(result_status)
         if not df_status.empty:
-            # Convert each DB status to display label
+            df_status.rename(columns={"_id": "status"}, inplace=True)
+            # Convert to UI label
             df_status['status_ui'] = df_status['status'].apply(display_status)
             fig_pie = px.pie(df_status, values='count', names='status_ui',
                              title="Ticket Status Distribution")
@@ -290,12 +323,23 @@ def dashboard_page():
             st.plotly_chart(fig_pie, use_container_width=True)
         else:
             st.info("No status data available")
-    
-    # Recent Activity Table
+
+    # Recent Activity
     st.subheader("⏱️ Recent Activity")
-    df_recent = pd.read_sql("SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8", conn)
+    # SELECT date, ticket_number, status, num_sub_tickets FROM tickets ORDER BY date DESC, time DESC LIMIT 8
+    # We'll sort by date+time descending (using insertion order for fallback)
+    docs = tickets_collection.find({}, {
+        "_id": 0,
+        "date": 1,
+        "ticket_number": 1,
+        "status": 1,
+        "num_sub_tickets": 1,
+        "time": 1
+    }).sort([("date", -1), ("time", -1)]).limit(8)
+
+    df_recent = pd.DataFrame(list(docs))
     if not df_recent.empty:
-        df_recent['status'] = df_recent['status'].apply(display_status)
+        df_recent["status"] = df_recent["status"].apply(display_status)
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent activity to display")
@@ -311,7 +355,7 @@ def add_tickets_page():
     with col_title:
         st.markdown("## ➕ Add New Tickets")
         st.write(f"Current ticket price: ${st.session_state.ticket_price:.2f} per sub-ticket")
-    
+
     st.markdown("---")
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -320,8 +364,10 @@ def add_tickets_page():
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         if not batch_name.strip():
-            cursor.execute("SELECT COUNT(DISTINCT batch_name) FROM tickets")
-            batch_count = cursor.fetchone()[0] + 1
+            # We'll generate a batch name automatically
+            # But in MongoDB, let's just do a quick distinct count
+            existing_batches = tickets_collection.distinct("batch_name")
+            batch_count = len(existing_batches) + 1
             batch_name = f"{st.session_state.batch_prefix}{batch_count}"
     with col2:
         st.markdown("""
@@ -331,7 +377,7 @@ def add_tickets_page():
         3. Enter ticket number(s).
         4. Click the Add button.
         """)
-    
+
     if ticket_input_type == "Multiple/General":
         tickets_text = st.text_area("Enter Ticket Number(s)", placeholder="Space or newline separated ticket numbers")
         if st.button("Add Tickets"):
@@ -342,22 +388,32 @@ def add_tickets_page():
                 for t in tickets_list:
                     t = t.strip()
                     if t:
+                        doc = {
+                            "date": current_date,
+                            "time": current_time,
+                            "batch_name": batch_name,
+                            "ticket_number": t,
+                            "num_sub_tickets": 1,
+                            "status": "Intake",
+                            "pay": st.session_state.ticket_price,
+                            "comments": "",
+                            "ticket_day": "",
+                            "ticket_school": ""
+                        }
                         try:
-                            cursor.execute(
-                                """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                                   VALUES(?,?,?,?,?,?,?)""",
-                                (current_date, current_time, batch_name, t, 1, "Intake", st.session_state.ticket_price)
-                            )
+                            tickets_collection.insert_one(doc)
                             success_count += 1
-                        except sqlite3.IntegrityError:
+                        except pymongo.errors.DuplicateKeyError:
                             failed_tickets.append(t)
-                conn.commit()
                 if success_count:
                     st.success(f"Successfully added {success_count} ticket(s) to batch '{batch_name}'.")
                     if animations["success"]:
                         st_lottie(animations["success"], height=120)
                 if failed_tickets:
-                    st.warning(f"Could not add {len(failed_tickets)} ticket(s) because they already exist: {', '.join(failed_tickets[:5])}{'...' if len(failed_tickets) > 5 else ''}")
+                    st.warning(
+                        f"Could not add {len(failed_tickets)} ticket(s) because they already exist: "
+                        f"{', '.join(failed_tickets[:5])}{'...' if len(failed_tickets) > 5 else ''}"
+                    )
             else:
                 st.warning("Please enter ticket number(s).")
     else:
@@ -368,26 +424,38 @@ def add_tickets_page():
             sub_count = st.number_input("Number of Sub-Tickets", min_value=1, value=5, step=1)
         if st.button("Add Large Ticket"):
             if large_ticket.strip():
+                doc = {
+                    "date": current_date,
+                    "time": current_time,
+                    "batch_name": batch_name,
+                    "ticket_number": large_ticket.strip(),
+                    "num_sub_tickets": sub_count,
+                    "status": "Intake",
+                    "pay": st.session_state.ticket_price,
+                    "comments": "",
+                    "ticket_day": "",
+                    "ticket_school": ""
+                }
                 try:
-                    cursor.execute(
-                        """INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                           VALUES(?,?,?,?,?,?,?)""",
-                        (current_date, current_time, batch_name, large_ticket.strip(), sub_count, "Intake", st.session_state.ticket_price)
-                    )
-                    conn.commit()
+                    tickets_collection.insert_one(doc)
                     st.success(f"Added large ticket '{large_ticket}' with {sub_count} sub-tickets to batch '{batch_name}'.")
                     if animations["success"]:
                         st_lottie(animations["success"], height=120)
-                except sqlite3.IntegrityError:
+                except pymongo.errors.DuplicateKeyError:
                     st.error(f"Ticket '{large_ticket.strip()}' already exists.")
             else:
                 st.warning("Please enter a valid ticket number.")
-    
+
+    # Recent additions
     st.markdown("---")
     st.subheader("Recent Additions")
-    df_recent = pd.read_sql("SELECT date, time, batch_name, ticket_number, num_sub_tickets, status FROM tickets ORDER BY id DESC LIMIT 5", conn)
+    recent_docs = tickets_collection.find({}).sort([("_id", -1)]).limit(5)
+    df_recent = pd.DataFrame(list(recent_docs))
     if not df_recent.empty:
         df_recent['status'] = df_recent['status'].apply(display_status)
+        # Hide _id if you want
+        if "_id" in df_recent.columns:
+            df_recent.drop(columns=["_id"], inplace=True)
         st.dataframe(df_recent, use_container_width=True)
     else:
         st.info("No recent tickets added.")
@@ -397,8 +465,6 @@ def add_tickets_page():
 # -----------------------------------------------------------
 def view_tickets_page():
     st.markdown("## 👁️ View Tickets by Status")
-    # We'll show only known statuses in separate tabs, plus a "Mixed/Other" if needed
-    # But let's focus on "Intake", "Return", "Delivered"
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📥 Intake",
         "🔄 Ready to Deliver",
@@ -406,15 +472,18 @@ def view_tickets_page():
         "On Hold",
         "Cancelled"
     ])
-    
-    # For each known status, query and show
+
     def show_status_data(status_key, container):
         with container:
             st.subheader(f"Tickets with status '{display_status(status_key)}'")
-            df_data = pd.read_sql("SELECT * FROM tickets WHERE status=? ORDER BY date DESC, time DESC", conn, params=(status_key,))
+            docs = tickets_collection.find({"status": status_key}).sort([("_id", -1)])
+            df_data = pd.DataFrame(list(docs))
             if not df_data.empty:
                 df_data['status'] = df_data['status'].apply(display_status)
+                if "_id" in df_data.columns:
+                    df_data.drop(columns=["_id"], inplace=True)
                 st.dataframe(df_data, use_container_width=True)
+
                 total_count = df_data['num_sub_tickets'].sum()
                 total_value = total_count * st.session_state.ticket_price
                 colA, colB = st.columns(2)
@@ -425,7 +494,7 @@ def view_tickets_page():
 
     # Intake
     show_status_data("Intake", tab1)
-    # Ready (Return)
+    # Ready
     show_status_data("Return", tab2)
     # Delivered
     show_status_data("Delivered", tab3)
@@ -445,7 +514,7 @@ def manage_tickets_page():
     with col_title:
         st.markdown("## 🔄 Manage Tickets")
         st.write("Advanced ticket management operations")
-    
+
     st.markdown("---")
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Search & Edit",
@@ -454,38 +523,42 @@ def manage_tickets_page():
         "📦 By Batch",
         "💻 SQL Query"
     ])
-    
-    # Tab 1: Search & Edit (Individual Ticket)
+
+    # Tab 1: Search & Edit
     with tab1:
         st.subheader("Individual Ticket Management")
         ticket_number = st.text_input("Enter Ticket Number to Manage")
         if ticket_number:
-            ticket_data = pd.read_sql("SELECT * FROM tickets WHERE ticket_number = ?", conn, params=(ticket_number.strip(),))
-            if not ticket_data.empty:
-                current_status_db = ticket_data.iloc[0]['status']
+            doc = tickets_collection.find_one({"ticket_number": ticket_number.strip()})
+            if doc:
+                current_status_db = doc.get("status", "Intake")
                 current_status_ui = display_status(current_status_db)
-                
-                # Build a status selectbox from the display labels
                 status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
                 default_idx = status_display_list.index(current_status_ui) if current_status_ui in status_display_list else 0
-                
+
                 with st.form("edit_ticket_form"):
                     new_status_label = st.selectbox("Status", status_display_list, index=default_idx)
                     new_status_db = get_db_status_from_display(new_status_label)
-                    new_subtickets = st.number_input("Sub-Tickets", min_value=1, value=int(ticket_data.iloc[0]['num_sub_tickets']))
-                    new_price = st.number_input("Ticket Price", min_value=0.0, value=float(ticket_data.iloc[0]['pay']), step=0.5)
+                    new_subtickets = st.number_input("Sub-Tickets", min_value=1, value=int(doc.get("num_sub_tickets", 1)))
+                    new_price = st.number_input("Ticket Price", min_value=0.0, value=float(doc.get("pay", 5.5)), step=0.5)
+
                     if st.form_submit_button("Update Ticket"):
-                        cursor.execute(
-                            "UPDATE tickets SET status = ?, num_sub_tickets = ?, pay = ? WHERE ticket_number = ?",
-                            (new_status_db, new_subtickets, new_price, ticket_number.strip())
+                        tickets_collection.update_one(
+                            {"ticket_number": ticket_number.strip()},
+                            {
+                                "$set": {
+                                    "status": new_status_db,
+                                    "num_sub_tickets": new_subtickets,
+                                    "pay": new_price
+                                }
+                            }
                         )
-                        conn.commit()
                         st.success("Ticket updated successfully!")
                         if animations["success"]:
                             st_lottie(animations["success"], height=80)
             else:
                 st.warning("Ticket not found in database")
-    
+
     # Tab 2: Bulk Operations
     with tab2:
         st.subheader("Bulk Operations")
@@ -493,42 +566,53 @@ def manage_tickets_page():
         bulk_action = st.selectbox("Action", ["Update Status", "Change Price", "Add Subtickets"])
         if bulk_tickets:
             ticket_list = [t.strip() for t in bulk_tickets.split('\n') if t.strip()]
-            found_tickets = []
-            missing_tickets = []
-            for t in ticket_list:
-                cursor.execute("SELECT 1 FROM tickets WHERE ticket_number = ?", (t,))
-                if cursor.fetchone():
-                    found_tickets.append(t)
-                else:
-                    missing_tickets.append(t)
-            if missing_tickets:
-                st.warning(f"{len(missing_tickets)} tickets not found: {', '.join(missing_tickets[:3])}{'...' if len(missing_tickets) > 3 else ''}")
-            if found_tickets:
-                st.success(f"{len(found_tickets)} valid tickets found")
+            if st.button("Validate Tickets"):
+                # We'll see which exist in DB vs not
+                existing = []
+                missing = []
+                for t in ticket_list:
+                    if tickets_collection.find_one({"ticket_number": t}):
+                        existing.append(t)
+                    else:
+                        missing.append(t)
+
+                if missing:
+                    st.warning(f"{len(missing)} tickets not found: {', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}")
+                if existing:
+                    st.success(f"{len(existing)} valid tickets found")
+                st.stop()  # stops here so user can see the results
+
+        # If user wants to process them in one go (without validation step):
+        if st.button("Perform Bulk Action"):
+            ticket_list = [t.strip() for t in bulk_tickets.split('\n') if t.strip()]
+            if not ticket_list:
+                st.warning("No valid tickets entered.")
+            else:
                 if bulk_action == "Update Status":
                     status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
                     new_status_label = st.selectbox("New Status", status_display_list)
                     new_status_db = get_db_status_from_display(new_status_label)
-                    if st.button("Update Status for All Found Tickets"):
-                        for t in found_tickets:
-                            cursor.execute("UPDATE tickets SET status = ? WHERE ticket_number = ?", (new_status_db, t))
-                        conn.commit()
-                        st.success(f"Updated {len(found_tickets)} tickets to {new_status_label} status")
+                    tickets_collection.update_many(
+                        {"ticket_number": {"$in": ticket_list}},
+                        {"$set": {"status": new_status_db}}
+                    )
+                    st.success(f"Updated {len(ticket_list)} tickets to {new_status_label}")
                 elif bulk_action == "Change Price":
                     new_price = st.number_input("New Price", min_value=0.0, value=st.session_state.ticket_price)
-                    if st.button("Update Price for All Found Tickets"):
-                        for t in found_tickets:
-                            cursor.execute("UPDATE tickets SET pay = ? WHERE ticket_number = ?", (new_price, t))
-                        conn.commit()
-                        st.success(f"Updated pricing for {len(found_tickets)} tickets")
+                    tickets_collection.update_many(
+                        {"ticket_number": {"$in": ticket_list}},
+                        {"$set": {"pay": new_price}}
+                    )
+                    st.success(f"Updated pricing for {len(ticket_list)} tickets")
                 elif bulk_action == "Add Subtickets":
                     add_count = st.number_input("Additional Subtickets", min_value=1, value=1)
-                    if st.button("Add Subtickets to All Found Tickets"):
-                        for t in found_tickets:
-                            cursor.execute("UPDATE tickets SET num_sub_tickets = num_sub_tickets + ? WHERE ticket_number = ?", (add_count, t))
-                        conn.commit()
-                        st.success(f"Added {add_count} subtickets to {len(found_tickets)} tickets")
-    
+                    # We'll do an update with $inc
+                    tickets_collection.update_many(
+                        {"ticket_number": {"$in": ticket_list}},
+                        {"$inc": {"num_sub_tickets": add_count}}
+                    )
+                    st.success(f"Added {add_count} subtickets to {len(ticket_list)} tickets")
+
     # Tab 3: Delete Tickets
     with tab3:
         st.subheader("Ticket Deletion")
@@ -536,18 +620,16 @@ def manage_tickets_page():
         if delete_option == "Single Ticket":
             del_ticket = st.text_input("Enter Ticket Number to Delete")
             if del_ticket and st.button("Delete Ticket"):
-                cursor.execute("DELETE FROM tickets WHERE ticket_number = ?", (del_ticket.strip(),))
-                conn.commit()
-                if cursor.rowcount > 0:
+                result = tickets_collection.delete_one({"ticket_number": del_ticket.strip()})
+                if result.deleted_count > 0:
                     st.success("Ticket deleted successfully")
                 else:
-                    st.error("Ticket not found")
+                    st.error("Ticket not found or already deleted")
         elif delete_option == "By Batch":
             batch_name = st.text_input("Enter Batch Name to Delete")
             if batch_name and st.button("Delete Entire Batch"):
-                cursor.execute("DELETE FROM tickets WHERE batch_name = ?", (batch_name.strip(),))
-                conn.commit()
-                st.success(f"Deleted {cursor.rowcount} tickets from batch {batch_name}")
+                result = tickets_collection.delete_many({"batch_name": batch_name.strip()})
+                st.success(f"Deleted {result.deleted_count} tickets from batch {batch_name}")
         elif delete_option == "By Date Range":
             col_date1, col_date2 = st.columns(2)
             with col_date1:
@@ -555,58 +637,52 @@ def manage_tickets_page():
             with col_date2:
                 end_date = st.date_input("End Date")
             if st.button("Delete Tickets in Date Range"):
-                cursor.execute("DELETE FROM tickets WHERE date BETWEEN ? AND ?", (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
-                conn.commit()
-                st.success(f"Deleted {cursor.rowcount} tickets from {start_date} to {end_date}")
-    
+                start_str = start_date.strftime("%Y-%m-%d")
+                end_str = end_date.strftime("%Y-%m-%d")
+                result = tickets_collection.delete_many({
+                    "date": {"$gte": start_str, "$lte": end_str}
+                })
+                st.success(f"Deleted {result.deleted_count} tickets from {start_date} to {end_date}")
+
     # Tab 4: Manage Tickets By Batch
     with tab4:
         st.subheader("Manage Tickets By Batch Name")
-        cursor.execute("SELECT DISTINCT batch_name FROM tickets")
-        batch_rows = cursor.fetchall()
-        batch_names = [row[0] for row in batch_rows if row[0]]
+        # distinct batches
+        batch_names = tickets_collection.distinct("batch_name")
         if batch_names:
             selected_batch = st.selectbox("Select a Batch to Manage", batch_names)
             if selected_batch:
-                df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(selected_batch,))
-                df_batch['status'] = df_batch['status'].apply(display_status)
-                st.dataframe(df_batch, use_container_width=True)
-
-                # Bulk update of the entire batch to a single status
-                status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
-                new_status_label = st.selectbox("New Status for All Tickets in This Batch", status_display_list)
-                new_status_db = get_db_status_from_display(new_status_label)
-                if st.button("Update All Tickets in Batch"):
-                    cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (new_status_db, selected_batch))
-                    conn.commit()
-                    st.success(f"All tickets in batch '{selected_batch}' updated to '{new_status_label}'!")
-                    
-                    # Show updated data
-                    df_batch = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(selected_batch,))
+                docs = tickets_collection.find({"batch_name": selected_batch})
+                df_batch = pd.DataFrame(list(docs))
+                if not df_batch.empty:
                     df_batch['status'] = df_batch['status'].apply(display_status)
+                    if "_id" in df_batch.columns:
+                        df_batch.drop(columns=["_id"], inplace=True)
                     st.dataframe(df_batch, use_container_width=True)
+
+                    # Bulk update
+                    status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
+                    new_status_label = st.selectbox("New Status for All Tickets in This Batch", status_display_list)
+                    new_status_db = get_db_status_from_display(new_status_label)
+                    if st.button("Update All Tickets in Batch"):
+                        tickets_collection.update_many(
+                            {"batch_name": selected_batch},
+                            {"$set": {"status": new_status_db}}
+                        )
+                        st.success(f"All tickets in batch '{selected_batch}' updated to '{new_status_label}'!")
         else:
             st.info("No batches found in the database.")
-    
+
     # Tab 5: Custom SQL Query Insert/Update
+    # We don't really have direct SQL in Mongo, but let's mimic the functionality
     with tab5:
-        st.subheader("Custom SQL Query Insert/Update")
-        st.write("Enter a valid SQL query (only INSERT or UPDATE queries are allowed) to update the tickets table. "
-                 "This will modify ticket records and changes will reflect in the Intake, Ready to Deliver, and Delivered views.")
-        sql_query = st.text_area("SQL Query", height=150,
-                                 placeholder="e.g., INSERT INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay) VALUES ('2025-03-24', '12:34:56', 'Batch-100', 'TICKET123', 1, 'Intake', 5.5)")
-        if st.button("Execute SQL Query"):
-            if sql_query.strip():
-                try:
-                    cursor.execute(sql_query)
-                    conn.commit()
-                    st.success(f"Query executed successfully. Rows affected: {cursor.rowcount}")
-                except Exception as e:
-                    st.error(f"Error executing query: {e}")
-            else:
-                st.warning("Please enter a SQL query.")
-    
-    st.markdown("---")
+        st.subheader("Custom MongoDB Insert/Update")
+        st.write("Enter a valid JSON-like command or a simple statement for insertion.")
+        # For demonstration, let's keep it minimal:
+        custom_query = st.text_area("Enter a pseudo-Mongo statement (like insertOne, updateMany, etc.)")
+        if st.button("Execute Pseudo-Mongo Command"):
+            st.warning("This is just a placeholder – in MongoDB, you typically run Python code, not raw SQL. Implement carefully if needed.")
+            # Provide your own logic to parse or interpret the user's commands.
 
 # -----------------------------------------------------------
 # BULK TICKET COMPARISON PAGE
@@ -639,12 +715,12 @@ def bulk_ticket_comparison_page():
             st.warning("No valid ticket numbers found in the text area.")
             return
 
-        df_db_tickets = pd.read_sql("SELECT ticket_number FROM tickets", conn)
-        db_tickets = set(df_db_tickets["ticket_number"].tolist())
+        # Collect all ticket_numbers in DB
+        db_ticket_numbers = set(tickets_collection.distinct("ticket_number"))
 
-        missing_in_db = user_tickets - db_tickets
-        extra_in_db = db_tickets - user_tickets
-        matches = user_tickets & db_tickets
+        missing_in_db = user_tickets - db_ticket_numbers
+        extra_in_db = db_ticket_numbers - user_tickets
+        matches = user_tickets & db_ticket_numbers
 
         colA, colB, colC = st.columns(3)
         colA.metric("Missing in DB", len(missing_in_db))
@@ -663,21 +739,28 @@ def bulk_ticket_comparison_page():
         if extra_in_db:
             st.write("### Tickets in DB But Not in Your List")
             st.write(", ".join(sorted(extra_in_db)))
-            placeholders = ",".join(["?"] * len(extra_in_db))
-            query_extra = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
-            df_extra = pd.read_sql(query_extra, conn, params=list(extra_in_db))
-            df_extra["status"] = df_extra["status"].apply(display_status)
-            st.dataframe(df_extra, use_container_width=True)
+            # Show details
+            query_extra = {"ticket_number": {"$in": list(extra_in_db)}}
+            docs_extra = tickets_collection.find(query_extra)
+            df_extra = pd.DataFrame(list(docs_extra))
+            if not df_extra.empty:
+                df_extra["status"] = df_extra["status"].apply(display_status)
+                if "_id" in df_extra.columns:
+                    df_extra.drop(columns=["_id"], inplace=True)
+                st.dataframe(df_extra, use_container_width=True)
         else:
             st.info("No extra tickets found in DB.")
 
         if matches:
             st.write("### Matched Tickets (In Both Lists)")
-            placeholders = ",".join(["?"] * len(matches))
-            query = f"SELECT * FROM tickets WHERE ticket_number IN ({placeholders})"
-            df_matched = pd.read_sql(query, conn, params=list(matches))
-            df_matched["status"] = df_matched["status"].apply(display_status)
-            st.dataframe(df_matched, use_container_width=True)
+            query_match = {"ticket_number": {"$in": list(matches)}}
+            docs_match = tickets_collection.find(query_match)
+            df_matched = pd.DataFrame(list(docs_match))
+            if not df_matched.empty:
+                df_matched["status"] = df_matched["status"].apply(display_status)
+                if "_id" in df_matched.columns:
+                    df_matched.drop(columns=["_id"], inplace=True)
+                st.dataframe(df_matched, use_container_width=True)
         else:
             st.info("No tickets were found in both lists.")
 
@@ -688,17 +771,20 @@ def sql_query_converter_page():
     st.markdown("## SQL Query Converter")
     st.write("Paste your raw ticket data (each line should be in the format `TicketNumber - Description`) and choose a target status. "
              "This tool will extract the ticket numbers and update or insert them into the database as needed.")
-    
-    raw_text = st.text_area("Enter raw ticket data", placeholder="""125633 - Eastport-South Manor / Acer R752T
+
+    raw_text = st.text_area(
+        "Enter raw ticket data",
+        placeholder="""125633 - Eastport-South Manor / Acer R752T
 125632 - Eastport-South Manor / Acer R752T
-125631 - Eastport-South Manor / Acer R752T""", height=200)
-    
-    # Let user pick any known status from our global list
+125631 - Eastport-South Manor / Acer R752T""",
+        height=200
+    )
+
     display_list = [display_status(s) for s in AVAILABLE_STATUSES]
     target_status_label = st.selectbox("Select target status", display_list)
     target_status_db = get_db_status_from_display(target_status_label)
-    
-    if st.button("Generate and Execute SQL Query"):
+
+    if st.button("Generate and Execute Insert/Update"):
         lines = raw_text.strip().splitlines()
         ticket_numbers = []
         for line in lines:
@@ -707,89 +793,86 @@ def sql_query_converter_page():
                 tnum = line.split(" - ")[0].strip()
                 ticket_numbers.append(tnum)
             else:
-                # Fallback: take the first word of the line, if any
                 parts = line.split()
                 if parts:
                     ticket_numbers.append(parts[0].strip())
 
         if ticket_numbers:
-            # We'll do two steps:
-            # 1) INSERT OR IGNORE any that don't exist
-            # 2) UPDATE status
+            # Insert or ignore (use upsert logic: insert if not exist)
             now_date = datetime.datetime.now().strftime("%Y-%m-%d")
             now_time = datetime.datetime.now().strftime("%H:%M:%S")
-            insert_sql = """
-                INSERT OR IGNORE INTO tickets (date, time, batch_name, ticket_number, num_sub_tickets, status, pay)
-                VALUES (?, ?, ?, ?, 1, 'Intake', ?)
-            """
             for tkt in ticket_numbers:
-                try:
-                    cursor.execute(insert_sql, (now_date, now_time, "Auto-Batch", tkt, st.session_state.ticket_price))
-                except Exception as e:
-                    st.error(f"Error inserting ticket {tkt}: {e}")
-            conn.commit()
-
-            # 2) Update to the chosen status
-            placeholders = ",".join(["?"] * len(ticket_numbers))
-            update_sql = f"UPDATE tickets SET status = ? WHERE ticket_number IN ({placeholders})"
-            params = [target_status_db] + ticket_numbers
-            try:
-                cursor.execute(update_sql, params)
-                conn.commit()
-                st.success(
-                    f"Inserted/updated {cursor.rowcount} tickets to '{target_status_label}'."
+                # We'll do an upsert:
+                tickets_collection.update_one(
+                    {"ticket_number": tkt},
+                    {
+                        "$setOnInsert": {
+                            "date": now_date,
+                            "time": now_time,
+                            "batch_name": "Auto-Batch",
+                            "num_sub_tickets": 1,
+                            "pay": st.session_state.ticket_price,
+                            "comments": "",
+                            "ticket_day": "",
+                            "ticket_school": ""
+                        }
+                    },
+                    upsert=True
                 )
-            except Exception as e:
-                st.error(f"Error updating tickets to '{target_status_label}': {e}")
+
+            # 2) Update status to chosen status
+            tickets_collection.update_many(
+                {"ticket_number": {"$in": ticket_numbers}},
+                {"$set": {"status": target_status_db}}
+            )
+            st.success(f"Inserted/updated {len(ticket_numbers)} tickets to '{target_status_label}'.")
         else:
             st.warning("No ticket numbers found in the input.")
 
 # -----------------------------------------------------------
-# Batches Page (revised to handle single-status vs mixed)
+# Batches Page
 # -----------------------------------------------------------
 def batch_view_page():
     st.markdown("## 🗂️ Batch View")
     st.write("""Each batch is shown under the tab that matches its **single** status. 
     If a batch has multiple ticket statuses, it is shown as "Mixed" in the Mixed tab.""")
-    
-    df_batches = pd.read_sql(
-        """
-        SELECT batch_name, 
-               GROUP_CONCAT(DISTINCT status) as statuses,
-               SUM(num_sub_tickets) as total_tickets,
-               GROUP_CONCAT(ticket_number) as ticket_numbers
-        FROM tickets
-        GROUP BY batch_name
-        """, conn
-    )
+
+    # We want: batch_name, statuses, total_tickets, ticket_numbers
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$batch_name",
+                "statuses": {"$addToSet": "$status"},
+                "total_tickets": {"$sum": "$num_sub_tickets"},
+                "ticket_numbers": {"$push": "$ticket_number"}
+            }
+        }
+    ]
+    results = list(tickets_collection.aggregate(pipeline))
+    df_batches = pd.DataFrame(results)
     if df_batches.empty:
         st.info("No batches found.")
         return
-    
-    # Compute whether each batch has exactly 1 status or multiple
+
+    df_batches.rename(columns={"_id": "batch_name"}, inplace=True)
+
     def get_batch_primary_status(row):
-        stat_list = row["statuses"].split(",")
-        stat_list = list(set(stat_list))  # unique
+        stat_list = row["statuses"]
         if len(stat_list) == 1:
-            return stat_list[0]  # the single status
+            return stat_list[0]
         return "Mixed"
 
     df_batches["batch_status"] = df_batches.apply(get_batch_primary_status, axis=1)
 
-    # We create a tab for each known status + a "Mixed" tab
     known_statuses = AVAILABLE_STATUSES + ["Mixed"]
     tab_objects = st.tabs([display_status(s) for s in known_statuses])
 
-    # Helper function to display batch tiles in a given container
     def display_batches_in_tab(df, container, tab_status):
         with container:
-            # Filter by that status
             df_filtered = df[df["batch_status"] == tab_status]
             if df_filtered.empty:
                 st.info(f"No batches with status '{display_status(tab_status)}'")
                 return
-
-            # We'll show them in columns of 3
             cols = st.columns(3)
             for idx, row in df_filtered.iterrows():
                 bname = row["batch_name"]
@@ -797,12 +880,10 @@ def batch_view_page():
                 total_tickets = row["total_tickets"]
                 tnumbers = row["ticket_numbers"]
 
-                # If there's exactly 1 status, display the label; else "Mixed"
-                if statuses_raw and "," in statuses_raw:
-                    # multiple distinct statuses
-                    status_label = "Mixed"
+                if len(statuses_raw) == 1:
+                    status_label = display_status(statuses_raw[0])
                 else:
-                    status_label = display_status(statuses_raw)
+                    status_label = "Mixed"
 
                 with cols[idx % 3]:
                     st.markdown(f"""
@@ -818,13 +899,13 @@ def batch_view_page():
                         st.session_state["edit_batch_status"] = status_label
 
                     if st.button(f"Copy Tickets - {bname}", key=f"copy_btn_{bname}_{tab_status}"):
-                        # Simple approach: show them in an expander, or copy via HTML
-                        # We'll do the same HTML/JS approach for direct copying:
+                        # Simple approach: show them in a hidden input
                         random_suffix = f"copy_{bname}_{tab_status}"
+                        tickets_str = ", ".join(tnumbers)
                         html_code = f"""
                         <input id="copyInput_{random_suffix}" 
                             type="text" 
-                            value="{tnumbers}" 
+                            value="{tickets_str}" 
                             style="opacity: 0; position: absolute; left: -9999px;">
                         <button onclick="copyText_{random_suffix}()">Click to Copy Tickets</button>
                         <script>
@@ -837,29 +918,28 @@ def batch_view_page():
                         </script>
                         """
                         components.html(html_code, height=50)
-    
-    # Create sub-tabs for each known status
+
     for status_key, tab_obj in zip(known_statuses, tab_objects):
         display_batches_in_tab(df_batches, tab_obj, status_key)
 
-    # If user clicked "Edit Status" for a batch, show an update form at bottom
     if "edit_batch" in st.session_state and st.session_state["edit_batch"]:
         bname = st.session_state["edit_batch"]
         st.markdown("---")
         st.markdown(f"## Update Batch Status for: **{bname}**")
-        df_b = pd.read_sql("SELECT * FROM tickets WHERE batch_name = ?", conn, params=(bname,))
-        st.dataframe(df_b, use_container_width=True)
+        docs_b = tickets_collection.find({"batch_name": bname})
+        df_b = pd.DataFrame(list(docs_b))
+        if not df_b.empty:
+            df_b['status'] = df_b['status'].apply(display_status)
+            if "_id" in df_b.columns:
+                df_b.drop(columns=["_id"], inplace=True)
+            st.dataframe(df_b, use_container_width=True)
 
-        # Let user pick new status
         status_display_list = [display_status(s) for s in AVAILABLE_STATUSES]
         new_status_label = st.selectbox("New Status", status_display_list)
         new_status_db = get_db_status_from_display(new_status_label)
-
         if st.button("Confirm Status Update"):
-            cursor.execute("UPDATE tickets SET status = ? WHERE batch_name = ?", (new_status_db, bname))
-            conn.commit()
+            tickets_collection.update_many({"batch_name": bname}, {"$set": {"status": new_status_db}})
             st.success(f"All tickets in batch '{bname}' updated to '{new_status_label}'.")
-            # Clear from session
             st.session_state["edit_batch"] = None
             st.session_state["edit_batch_status"] = None
             st.experimental_rerun()
@@ -875,48 +955,63 @@ def income_page():
     with col_title:
         st.markdown("## 💰 Income Analysis")
         st.write("Track, analyze, and forecast your earnings from delivered tickets. View both the received income and potential income from pending tickets.")
-    
+
     st.markdown("---")
     col_date1, col_date2 = st.columns(2)
     with col_date1:
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=30))
     with col_date2:
         end_date = st.date_input("End Date", datetime.date.today())
-    
-    query_delivered = """
-        SELECT date,
-               SUM(num_sub_tickets * pay) AS day_earnings
-        FROM tickets
-        WHERE status='Delivered' AND date BETWEEN ? AND ?
-        GROUP BY date
-        ORDER BY date ASC
-    """
-    df_income = pd.read_sql(query_delivered, conn, params=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")])
-    
-    query_pending = """
-        SELECT SUM(num_sub_tickets * pay) AS pending_income
-        FROM tickets
-        WHERE status != 'Delivered'
-    """
-    df_pending = pd.read_sql(query_pending, conn)
-    pending_income = df_pending.iloc[0]['pending_income'] or 0
+
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
+
+    # SELECT date, SUM(num_sub_tickets * pay) AS day_earnings FROM tickets
+    # WHERE status='Delivered' AND date BETWEEN ... GROUP BY date
+    pipeline_delivered = [
+        {"$match": {
+            "status": "Delivered",
+            "date": {"$gte": start_str, "$lte": end_str}
+        }},
+        {"$group": {
+            "_id": "$date",
+            "day_earnings": {"$sum": {"$multiply": ["$num_sub_tickets", "$pay"]}}
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    results_income = list(tickets_collection.aggregate(pipeline_delivered))
+    df_income = pd.DataFrame(results_income)
+
+    # SUM of pending
+    pipeline_pending = [
+        {"$match": {"status": {"$ne": "Delivered"}}},
+        {"$group": {"_id": None, "pending_income": {"$sum": {"$multiply": ["$num_sub_tickets", "$pay"]}}}}
+    ]
+    results_pending = list(tickets_collection.aggregate(pipeline_pending))
+    pending_income = results_pending[0]["pending_income"] if results_pending else 0
 
     if not df_income.empty:
-        df_income['date'] = pd.to_datetime(df_income['date'])
+        df_income.rename(columns={"_id": "date"}, inplace=True)
+        df_income["date"] = pd.to_datetime(df_income["date"], format="%Y-%m-%d", errors="coerce")
         df_income.sort_values("date", inplace=True)
-        
-        fig = px.area(df_income, x="date", y="day_earnings", title="Daily Earnings Trend",
-                      labels={"day_earnings": "Earnings ($)", "date": "Date"})
+
+        fig = px.area(
+            df_income,
+            x="date",
+            y="day_earnings",
+            title="Daily Earnings Trend",
+            labels={"day_earnings": "Earnings ($)", "date": "Date"}
+        )
         st.plotly_chart(fig, use_container_width=True)
-        
+
         st.subheader("Detailed Earnings")
         st.dataframe(df_income, use_container_width=True)
-        
+
         total_received = df_income["day_earnings"].sum()
         st.metric("Amount Received", f"${total_received:,.2f}")
         st.metric("Pending Income", f"${pending_income:,.2f}")
-        st.metric("Total Potential Income", f"${total_received + pending_income:,.2f}")
-        
+        st.metric("Total Potential Income", f"${(total_received + pending_income):,.2f}")
+
         # Simple linear forecast
         if len(df_income) > 1:
             df_income["date_num"] = df_income["date"].map(datetime.datetime.toordinal)
@@ -928,10 +1023,10 @@ def income_page():
             forecast_dates = [last_date + datetime.timedelta(days=i) for i in range(1, 8)]
             forecast_x = [d.toordinal() for d in forecast_dates]
             forecast_y = poly(forecast_x)
-            
+
             fig.add_trace(go.Scatter(x=forecast_dates, y=forecast_y, mode='lines+markers', name="Forecast"))
             st.plotly_chart(fig, use_container_width=True)
-            
+
             st.write("Forecast for the next 7 days (based on a simple linear trend):")
             forecast_df = pd.DataFrame({
                 "Date": forecast_dates,
@@ -942,7 +1037,7 @@ def income_page():
             st.info("Not enough data for forecasting.")
     else:
         st.info("No delivered tickets found in this date range")
-    
+
     st.markdown("---")
 
 # -----------------------------------------------------------
@@ -950,39 +1045,57 @@ def income_page():
 # -----------------------------------------------------------
 def ai_analysis_page():
     st.markdown("## 🤖 AI Analysis")
-    st.write("This section provides AI-driven insights into your ticket management performance based on historical data. "
-             "It can highlight trends, perform simple forecasts, and detect anomalies in your delivered ticket counts.")
-    
-    total_tickets_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total FROM tickets", conn)
-    total_tickets = total_tickets_df.iloc[0]['total'] or 0
-    total_delivered_df = pd.read_sql("SELECT SUM(num_sub_tickets) as total_delivered FROM tickets WHERE status='Delivered'", conn)
-    total_delivered = total_delivered_df.iloc[0]['total_delivered'] or 0
+    st.write("This section provides AI-driven insights into your ticket management performance based on historical data.")
+
+    # total tickets
+    pipeline_total = [
+        {"$group": {"_id": None, "total": {"$sum": "$num_sub_tickets"}}}
+    ]
+    result_total = list(tickets_collection.aggregate(pipeline_total))
+    total_tickets = result_total[0]["total"] if result_total else 0
+
+    # total delivered
+    pipeline_delivered = [
+        {"$match": {"status": "Delivered"}},
+        {"$group": {"_id": None, "total_delivered": {"$sum": "$num_sub_tickets"}}}
+    ]
+    result_delivered = list(tickets_collection.aggregate(pipeline_delivered))
+    total_delivered = result_delivered[0]["total_delivered"] if result_delivered else 0
+
     conversion_rate = (total_delivered / total_tickets * 100) if total_tickets else 0
 
     st.metric("Total Tickets", total_tickets)
     st.metric("Total Delivered", total_delivered)
     st.metric("Delivery Conversion Rate (%)", f"{conversion_rate:.2f}%")
-    
+
     tab1, tab2, tab3, tab4 = st.tabs(["Daily Trend & Forecast", "Weekday Analysis", "Calendar Heatmap", "Anomaly Detection"])
-    
+
     with tab1:
-        df_trend = pd.read_sql(
-            "SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date ORDER BY date",
-            conn
-        )
+        pipeline_trend = [
+            {"$match": {"status": "Delivered"}},
+            {"$group": {
+                "_id": "$date",
+                "delivered": {"$sum": "$num_sub_tickets"}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        results_trend = list(tickets_collection.aggregate(pipeline_trend))
+        df_trend = pd.DataFrame(results_trend)
         if not df_trend.empty:
-            df_trend['date'] = pd.to_datetime(df_trend['date'])
+            df_trend.rename(columns={"_id": "date"}, inplace=True)
+            df_trend['date'] = pd.to_datetime(df_trend['date'], format="%Y-%m-%d", errors="coerce")
             fig1 = go.Figure(go.Scatter(x=df_trend['date'], y=df_trend['delivered'], mode='lines+markers', name="Historical"))
             fig1.update_layout(title="Daily Delivered Tickets Trend", xaxis_title="Date", yaxis_title="Delivered Tickets")
             st.plotly_chart(fig1, use_container_width=True)
+
             avg_delivered = df_trend['delivered'].mean()
             st.write(f"On average, you deliver about {avg_delivered:.1f} tickets per day.")
-            
-            df_trend = df_trend.sort_values("date")
-            df_trend["date_num"] = df_trend["date"].map(datetime.datetime.toordinal)
-            x = df_trend["date_num"].values
-            y = df_trend["delivered"].values
-            if len(x) > 1:
+
+            df_trend.sort_values("date", inplace=True)
+            if len(df_trend) > 1:
+                df_trend["date_num"] = df_trend["date"].map(datetime.datetime.toordinal)
+                x = df_trend["date_num"].values
+                y = df_trend["delivered"].values
                 coeffs = np.polyfit(x, y, 1)
                 poly = np.poly1d(coeffs)
                 last_date = df_trend["date"].max()
@@ -991,6 +1104,7 @@ def ai_analysis_page():
                 forecast_y = poly(forecast_x)
                 fig1.add_trace(go.Scatter(x=forecast_dates, y=forecast_y, mode='lines+markers', name="Forecast"))
                 st.plotly_chart(fig1, use_container_width=True)
+
                 st.write("Forecast for the next 7 days (based on a simple linear trend):")
                 forecast_df = pd.DataFrame({
                     "Date": forecast_dates,
@@ -1001,16 +1115,28 @@ def ai_analysis_page():
                 st.info("Not enough data for forecasting.")
         else:
             st.info("No delivered ticket data available for daily trend analysis.")
-    
+
     with tab2:
-        df_status = pd.read_sql(
-            "SELECT date, status, SUM(num_sub_tickets) as count FROM tickets GROUP BY date, status",
-            conn
-        )
+        # We do a grouping by date and status, then break down by weekday
+        pipeline_status = [
+            {"$group": {
+                "_id": {
+                    "date": "$date",
+                    "status": "$status"
+                },
+                "count": {"$sum": "$num_sub_tickets"}
+            }}
+        ]
+        results_status = list(tickets_collection.aggregate(pipeline_status))
+        df_status = pd.DataFrame(results_status)
         if not df_status.empty:
-            df_status['date'] = pd.to_datetime(df_status['date'])
+            df_status["date"] = pd.to_datetime(df_status["_id"].apply(lambda x: x["date"]), errors="coerce")
+            df_status["status"] = df_status["_id"].apply(lambda x: x["status"])
+            df_status.drop(columns=["_id"], inplace=True)
+
             df_status['weekday'] = df_status['date'].dt.day_name()
             df_status['status_ui'] = df_status['status'].apply(display_status)
+
             pivot = df_status.pivot_table(index='weekday', columns='status_ui', values='count', aggfunc='mean', fill_value=0)
             weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             pivot = pivot.reindex(weekday_order)
@@ -1032,16 +1158,27 @@ def ai_analysis_page():
             st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("No ticket data available for weekday analysis.")
-    
+
     with tab3:
-        df_delivered = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
+        # Calendar heatmap approach
+        pipeline_del = [
+            {"$match": {"status": "Delivered"}},
+            {"$group": {
+                "_id": "$date",
+                "delivered": {"$sum": "$num_sub_tickets"}
+            }}
+        ]
+        results_del = list(tickets_collection.aggregate(pipeline_del))
+        df_delivered = pd.DataFrame(results_del)
         if not df_delivered.empty:
-            df_delivered['date'] = pd.to_datetime(df_delivered['date'])
+            df_delivered.rename(columns={"_id": "date"}, inplace=True)
+            df_delivered['date'] = pd.to_datetime(df_delivered['date'], format="%Y-%m-%d", errors="coerce")
             df_delivered['week'] = df_delivered['date'].dt.isocalendar().week
             df_delivered['weekday'] = df_delivered['date'].dt.day_name()
             weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             heatmap_data = df_delivered.pivot_table(index='weekday', columns='week', values='delivered', fill_value=0)
             heatmap_data = heatmap_data.reindex(weekday_order)
+
             st.subheader("Calendar Heatmap of Delivered Tickets")
             fig3 = go.Figure(data=go.Heatmap(
                 z=heatmap_data.values,
@@ -1053,11 +1190,21 @@ def ai_analysis_page():
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No delivered ticket data available for calendar heatmap.")
-    
+
     with tab4:
-        df_anomaly = pd.read_sql("SELECT date, SUM(num_sub_tickets) as delivered FROM tickets WHERE status='Delivered' GROUP BY date", conn)
+        pipeline_anomaly = [
+            {"$match": {"status": "Delivered"}},
+            {"$group": {
+                "_id": "$date",
+                "delivered": {"$sum": "$num_sub_tickets"}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        results_anomaly = list(tickets_collection.aggregate(pipeline_anomaly))
+        df_anomaly = pd.DataFrame(results_anomaly)
         if not df_anomaly.empty:
-            df_anomaly['date'] = pd.to_datetime(df_anomaly['date'])
+            df_anomaly.rename(columns={"_id": "date"}, inplace=True)
+            df_anomaly['date'] = pd.to_datetime(df_anomaly['date'], errors="coerce")
             mean_val = df_anomaly['delivered'].mean()
             std_val = df_anomaly['delivered'].std()
             df_anomaly['anomaly'] = df_anomaly['delivered'].apply(
@@ -1066,6 +1213,7 @@ def ai_analysis_page():
             st.subheader("Anomaly Detection in Delivered Tickets")
             st.write(f"Mean: {mean_val:.1f}, Standard Deviation: {std_val:.1f}")
             st.dataframe(df_anomaly)
+
             fig4 = go.Figure()
             fig4.add_trace(go.Scatter(
                 x=df_anomaly['date'],
@@ -1090,46 +1238,45 @@ def ai_analysis_page():
             st.plotly_chart(fig4, use_container_width=True)
         else:
             st.info("No delivered ticket data available for anomaly detection.")
-    
+
     st.subheader("Recommendations")
     if conversion_rate < 50:
-        st.info("Your delivery conversion rate is below 50%. Consider strategies to improve ticket delivery, such as follow-up reminders or quality control checks.")
+        st.info("Your delivery conversion rate is below 50%. Consider strategies to improve ticket delivery.")
     elif conversion_rate < 75:
-        st.info("Your delivery conversion rate is moderate. There might be room for improvement to achieve higher efficiency.")
+        st.info("Your delivery conversion rate is moderate. There might be room for improvement.")
     else:
-        st.success("Great job! Your delivery conversion rate is high, indicating efficient ticket management.")
-    
+        st.success("Great job! Your delivery conversion rate is high.")
+
     st.write("Keep monitoring your performance regularly to identify trends and optimize your operations.")
 
 # -----------------------------------------------------------
 # Backup & Restore Page
 # -----------------------------------------------------------
 def backup_restore_page():
-    global conn
+    # This part was originally for .db files. We'll adapt it for MongoDB exports
     st.markdown("## 💾 Backup & Restore")
-    st.write("Download your database backup or export your ticket data to Excel. You can also restore your ticket data from an Excel file or a .db file.")
-    
+    st.write("Download your ticket data as an Excel file, or restore your ticket data from an Excel file. (MongoDB .db backups are not applicable here.)")
+
     st.subheader("Download Options")
-    try:
-        with open("ticket_management.db", "rb") as db_file:
-            db_bytes = db_file.read()
-        st.download_button("Download Database (.db)", db_bytes, file_name="ticket_management.db", mime="application/octet-stream")
-    except Exception as e:
-        st.error("Database file not found.")
-    
-    df_tickets = pd.read_sql("SELECT * FROM tickets", conn)
-    if not df_tickets.empty:
+    docs_all = list(tickets_collection.find({}))
+    if docs_all:
+        df_tickets = pd.DataFrame(docs_all)
+        if "_id" in df_tickets.columns:
+            df_tickets.drop(columns=["_id"], inplace=True)
         towrite = BytesIO()
         with pd.ExcelWriter(towrite, engine="xlsxwriter") as writer:
             df_tickets.to_excel(writer, index=False, sheet_name="Tickets")
         towrite.seek(0)
-        st.download_button("Download Excel Backup", towrite.read(), file_name="tickets_backup.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button("Download Excel Backup", towrite.read(),
+                           file_name="tickets_backup.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
         st.info("No ticket data available to export.")
-    
+
     st.markdown("---")
     st.subheader("Restore from Excel")
-    st.write("Upload an Excel file to restore your ticket data. **Warning:** This will overwrite your current ticket data.")
+    st.write("Upload an Excel file to restore your ticket data. **Warning:** This will overwrite your current data in the `tickets` collection.")
+
     uploaded_excel = st.file_uploader("Choose an Excel file", type=["xlsx"])
     if uploaded_excel is not None:
         try:
@@ -1138,27 +1285,17 @@ def backup_restore_page():
             if not required_columns.issubset(set(df_restore.columns)):
                 st.error("Uploaded Excel file does not contain the required columns.")
             else:
-                cursor.execute("DELETE FROM tickets")
-                conn.commit()
-                df_restore.to_sql("tickets", conn, if_exists="append", index=False)
+                # Clear existing
+                tickets_collection.delete_many({})
+                # Insert new
+                records = df_restore.to_dict("records")
+                tickets_collection.insert_many(records)
                 st.success("Database restored successfully from Excel file!")
         except Exception as e:
             st.error(f"Error restoring from Excel: {e}")
-    
+
     st.markdown("---")
-    st.subheader("Restore Database from .db File")
-    st.write("Upload a .db file to restore your entire database. **Warning:** This will overwrite your current database.")
-    uploaded_db = st.file_uploader("Choose a .db file", type=["db"])
-    if uploaded_db is not None:
-        try:
-            with open("ticket_management.db", "wb") as f:
-                f.write(uploaded_db.getbuffer())
-            st.success("Database restored successfully from uploaded .db file!")
-            conn.close()
-            conn = get_db_connection()
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Error restoring database from .db file: {e}")
+    st.info("If you need a full MongoDB backup/restore, use MongoDB Tools (mongodump/mongorestore) or Atlas snapshots.")
 
 # -----------------------------------------------------------
 # Settings Page
@@ -1171,7 +1308,7 @@ def settings_page():
     with col_title:
         st.markdown("## ⚙️ System Settings")
         st.write("Configure application preferences and defaults")
-    
+
     st.markdown("---")
     tab1, tab2, tab3 = st.tabs(["💰 Pricing", "🏢 Company", "🎨 Appearance"])
     with tab1:
@@ -1194,10 +1331,8 @@ def settings_page():
         if dark_mode != st.session_state.dark_mode:
             st.session_state.dark_mode = dark_mode
             load_css()
-        # The color picker is not actively used to style the entire app,
-        # but you could incorporate it if you want more advanced theming
         st.color_picker("Primary Color", value="#4CAF50", key="primary_color")
-    
+
     st.markdown("---")
 
 # -----------------------------------------------------------
@@ -1221,10 +1356,12 @@ def main():
     active_page = st.session_state.active_page
     if active_page in pages:
         pages[active_page]()
+
+    # Footer
     st.markdown(f"""
     <div style="text-align:center; padding: 15px; font-size: 0.8rem; border-top: 1px solid #ccc; margin-top: 30px;">
         <p>{st.session_state.company_name} Ticket System • {datetime.datetime.now().year}</p>
-        <p>Powered by Streamlit • v1.0</p>
+        <p>Powered by Streamlit • v1.0 • MongoDB Edition</p>
     </div>
     """, unsafe_allow_html=True)
 
